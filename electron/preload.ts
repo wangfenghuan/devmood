@@ -1,0 +1,60 @@
+import { contextBridge, ipcRenderer } from 'electron'
+import { CurrentStatus, StatusSnapshot, AppSettings } from './types'
+
+// 暴露给渲染进程的 API
+const electronAPI = {
+  // 获取当前状态
+  getCurrentStatus: (): Promise<CurrentStatus> => {
+    return ipcRenderer.invoke('get-current-status')
+  },
+
+  // 获取历史记录
+  getHistory: (start: number, end: number): Promise<StatusSnapshot[]> => {
+    return ipcRenderer.invoke('get-history', { start, end })
+  },
+
+  // 获取设置
+  getSettings: (): Promise<AppSettings> => {
+    return ipcRenderer.invoke('get-settings')
+  },
+
+  // 更新设置
+  updateSettings: (settings: Partial<AppSettings>): Promise<void> => {
+    return ipcRenderer.invoke('update-settings', settings)
+  },
+
+  // 获取今日统计
+  getTodayStats: (): Promise<{
+    totalFocusedTime: number
+    totalFatiguedTime: number
+    totalStuckTime: number
+    totalFrustratedTime: number
+    averageScore: number
+  } | null> => {
+    return ipcRenderer.invoke('get-today-stats')
+  },
+
+  // 重置工作计时
+  resetWorkTimer: (): Promise<void> => {
+    return ipcRenderer.invoke('reset-work-timer')
+  },
+
+  // 监听状态更新
+  onStatusUpdate: (callback: (status: CurrentStatus) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: CurrentStatus) => {
+      callback(status)
+    }
+    ipcRenderer.on('status-update', listener)
+    
+    // 返回取消订阅函数
+    return () => {
+      ipcRenderer.removeListener('status-update', listener)
+    }
+  }
+}
+
+// 暴露 API 到渲染进程
+contextBridge.exposeInMainWorld('electronAPI', electronAPI)
+
+// 类型声明
+export type ElectronAPI = typeof electronAPI
