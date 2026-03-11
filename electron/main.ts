@@ -4,7 +4,7 @@ import { uIOhook } from 'uiohook-napi'
 import ActivityMonitor from './activityMonitor'
 import StateAnalyzer from './stateAnalyzer'
 import AppDatabase from './database'
-import { CurrentStatus, StatusSnapshot, AppSettings, STATE_LABELS } from './types'
+import { CurrentStatus, StatusSnapshot, AppSettings, STATE_LABELS, ActivityData } from './types'
 
 // 使用全局变量跟踪退出状态
 let isQuitting = false
@@ -14,7 +14,7 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let activityMonitor: ActivityMonitor | null = null
 let stateAnalyzer: StateAnalyzer | null = null
-let database: AppDatabase | null = null
+let database: typeof AppDatabase | null = null
 
 // 当前状态
 let currentStatus: CurrentStatus = {
@@ -222,22 +222,19 @@ function startGlobalInputMonitor(): void {
   registerAndStartHook()
 }
 
-function initializeComponents(): void {
+async function initializeComponents(): Promise<void> {
   // 初始化数据库
-  database = new AppDatabase()
-
-  // 清理旧数据
-  database.cleanupOldData()
+  database = AppDatabase
 
   // 初始化状态分析器
   stateAnalyzer = new StateAnalyzer()
-  stateAnalyzer.updateSettings(database.getSettings())
+  stateAnalyzer.updateSettings(await database.getSettings())
 
   // 初始化活动监控器
   activityMonitor = new ActivityMonitor()
 
   // 监听活动数据更新
-  activityMonitor.on('activity', (data) => {
+  activityMonitor.on('activity', async (data: ActivityData) => {
     if (!stateAnalyzer || !database) return
 
     // 分析状态
@@ -259,20 +256,22 @@ function initializeComponents(): void {
       mainWindow.webContents.send('status-update', currentStatus)
     }
 
-    // 保存到数据库 (每分钟保存一次)
+    // 保存到数据库
     const snapshot: StatusSnapshot = {
       timestamp: Date.now(),
       state: analysis.state,
       score: analysis.score,
+      confidence: analysis.confidence,
+      indicators: analysis.indicators,
       typingSpeed: data.typingSpeed,
       mouseSpeed: data.mouseSpeed,
       clickFrequency: data.clickFrequency,
       idleTime: data.idleTime
     }
-    database.saveStatusSnapshot(snapshot)
+    database.saveHistory(snapshot)
 
     // 检查是否需要提醒
-    checkNotifications(analysis)
+    await checkNotifications(analysis)
   })
 
   // 监听空闲状态变化
@@ -300,10 +299,10 @@ function initializeComponents(): void {
   startGlobalInputMonitor()
 }
 
-function checkNotifications(analysis: CurrentStatus['analysis']): void {
+async function checkNotifications(analysis: CurrentStatus['analysis']): Promise<void> {
   if (!analysis || !database) return
 
-  const settings = database.getSettings()
+  const settings = await database.getSettings()
   if (!settings.notificationsEnabled) return
 
   const now = Date.now()
@@ -358,12 +357,12 @@ ipcMain.handle('get-current-status', (): CurrentStatus => {
   return currentStatus
 })
 
-ipcMain.handle('get-history', (_event, options: { start: number; end: number }): StatusSnapshot[] => {
+ipcMain.handle('get-history', async (_event, options: { start: number; end: number }) => {
   if (!database) return []
-  return database.getHistory(options.start, options.end)
+  return await database.getHistory(options.start, options.end)
 })
 
-ipcMain.handle('get-settings', (): AppSettings => {
+ipcMain.handle('get-settings', async () => {
   if (!database) {
     return {
       notificationsEnabled: true,
@@ -375,18 +374,19 @@ ipcMain.handle('get-settings', (): AppSettings => {
       workingHoursEnd: 18
     }
   }
-  return database.getSettings()
+  return await database.getSettings()
 })
 
-ipcMain.handle('update-settings', (_event, settings: Partial<AppSettings>): void => {
+ipcMain.handle('update-settings', async (_event, settings: Partial<AppSettings>) => {
   if (!database) return
-  database.updateSettings(settings)
-  stateAnalyzer?.updateSettings(database.getSettings())
+  await database.updateSettings(settings)
+  const newSettings = await database.getSettings()
+  stateAnalyzer?.updateSettings(newSettings)
 })
 
-ipcMain.handle('get-today-stats', () => {
+ipcMain.handle('get-today-stats', async () => {
   if (!database) return null
-  return database.getTodayStats()
+  return await database.getTodayStats()
 })
 
 ipcMain.handle('reset-work-timer', () => {
@@ -424,5 +424,6 @@ app.on('before-quit', () => {
   isQuitting = true
   uIOhook.stop()
   activityMonitor?.stop()
+  stateAnalyzer?.shutdown()
   database?.close()
 })

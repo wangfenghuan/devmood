@@ -42,10 +42,13 @@ export interface StatusSnapshot {
   timestamp: number
   state: DeveloperState
   score: number
-  typingSpeed: number
-  mouseSpeed: number
-  clickFrequency: number
-  idleTime: number
+  confidence: number
+  indicators: string[]
+  // 以下为旧版 JSON 为了兼容可能保留的字段
+  typingSpeed?: number
+  mouseSpeed?: number
+  clickFrequency?: number
+  idleTime?: number
 }
 
 // 设置

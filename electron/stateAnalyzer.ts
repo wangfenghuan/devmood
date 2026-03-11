@@ -1,21 +1,25 @@
 import { ActivityData, StateAnalysis, DeveloperState, AppSettings } from './types'
+import MLAnalyzer from './mlAnalyzer'
 
 // 状态分析器 - 根据活动数据识别开发者状态
 class StateAnalyzer {
   // 历史数据缓存 (用于检测趋势)
   private activityHistory: ActivityData[] = []
   private stateHistory: { state: DeveloperState; timestamp: number }[] = []
-  private readonly HISTORY_SIZE = 30 // 保留最近30个数据点 (约5分钟)
+  private readonly HISTORY_SIZE = 30
 
-  // 状态平滑 - 防止状态频繁跳动
+  // 状态平滑
   private currentState: DeveloperState = 'normal'
   private pendingState: DeveloperState | null = null
   private pendingStateCount: number = 0
-  private readonly MIN_STATE_PERSISTENCE = 3 // 新状态需要连续出现3次才切换
+  private readonly MIN_STATE_PERSISTENCE = 3
 
-  // 分数平滑 (指数移动平均)
+  // 分数平滑
   private smoothedScore: number = 60
-  private readonly SCORE_SMOOTHING = 0.3 // 平滑系数 (0-1, 越小越平滑)
+  private readonly SCORE_SMOOTHING = 0.3
+
+  // ML 分析器
+  private mlAnalyzer: MLAnalyzer
 
   // 默认设置
   private settings: AppSettings = {
@@ -28,10 +32,11 @@ class StateAnalyzer {
     workingHoursEnd: 18
   }
 
-  // 工作开始时间
   private workStartTime: number = Date.now()
 
-  constructor() { }
+  constructor() {
+    this.mlAnalyzer = new MLAnalyzer()
+  }
 
   // 更新设置
   updateSettings(settings: AppSettings): void {
@@ -49,8 +54,25 @@ class StateAnalyzer {
     // 计算各项指标
     const metrics = this.calculateMetrics(data)
 
-    // 识别原始状态 (未平滑)
-    const rawState = this.identifyState(metrics)
+    // 提取 ML 特征
+    const mlFeatures = this.mlAnalyzer.extractFeatures(data, this.activityHistory)
+
+    // 规则系统识别状态
+    const ruleState = this.identifyState(metrics)
+
+    // ML 预测
+    const mlPrediction = this.mlAnalyzer.predict(mlFeatures)
+
+    // 混合决策：ML 置信度足够时用 ML，否则用规则
+    let rawState: DeveloperState
+    if (mlPrediction && this.mlAnalyzer.shouldUseModel(mlPrediction.confidence)) {
+      rawState = mlPrediction.state
+    } else {
+      rawState = ruleState
+    }
+
+    // 用规则系统的标签来训练 ML 模型
+    this.mlAnalyzer.addSample(mlFeatures, ruleState)
 
     // 状态平滑：新状态需要连续出现 MIN_STATE_PERSISTENCE 次才切换
     if (rawState !== this.currentState) {
@@ -405,6 +427,16 @@ class StateAnalyzer {
     this.workStartTime = Date.now()
     this.activityHistory = []
     this.stateHistory = []
+  }
+
+  // 关闭时保存模型
+  shutdown(): void {
+    this.mlAnalyzer.shutdown()
+  }
+
+  // 获取 ML 模型状态
+  getMLStatus() {
+    return this.mlAnalyzer.getStatus()
   }
 
   // 获取工作时长 (毫秒)

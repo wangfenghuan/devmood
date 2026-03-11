@@ -1,155 +1,302 @@
 import { app } from 'electron'
 import path from 'path'
 import fs from 'fs'
+import initSqlJs from 'sql.js'
 import { StatusSnapshot, AppSettings } from './types'
 
 class AppDatabase {
   private dbPath: string
-  private dataPath: string
-  private data: {
-    history: StatusSnapshot[]
-    settings: AppSettings
+  private dataDir: string
+  private db: initSqlJs.Database | null = null
+  private DB_LOAD_PROMISE: Promise<void> | null = null
+
+  // 默认设置
+  private defaultSettings: AppSettings = {
+    notificationsEnabled: true,
+    fatigueThreshold: 30,
+    stuckThreshold: 15,
+    frustrationThreshold: 0.7,
+    breakReminderInterval: 60,
+    workingHoursStart: 9,
+    workingHoursEnd: 18
   }
+
+  // 缓存设置避免频繁查库
+  private cachedSettings: AppSettings | null = null
 
   constructor() {
-    this.dataPath = path.join(app.getPath('userData'), 'devmood-data')
-    this.dbPath = path.join(this.dataPath, 'data.json')
-    
-    // 默认数据
-    this.data = {
-      history: [],
-      settings: {
-        notificationsEnabled: true,
-        fatigueThreshold: 30,
-        stuckThreshold: 15,
-        frustrationThreshold: 0.7,
-        breakReminderInterval: 60,
-        workingHoursStart: 9,
-        workingHoursEnd: 18
-      }
-    }
-    
-    this.initialize()
+    this.dataDir = path.join(app.getPath('userData'), 'devmood-data')
+    this.dbPath = path.join(this.dataDir, 'database.sqlite')
+    this.ensureDir()
   }
 
-  private initialize(): void {
-    // 确保目录存在
-    if (!fs.existsSync(this.dataPath)) {
-      fs.mkdirSync(this.dataPath, { recursive: true })
+  private ensureDir() {
+    if (!fs.existsSync(this.dataDir)) {
+      fs.mkdirSync(this.dataDir, { recursive: true })
     }
-    
-    // 读取现有数据
-    if (fs.existsSync(this.dbPath)) {
+  }
+
+  // 初始化数据库，由于 sql.js 需要异步加载 WASM
+  public async init(): Promise<void> {
+    if (this.DB_LOAD_PROMISE) return this.DB_LOAD_PROMISE
+
+    this.DB_LOAD_PROMISE = new Promise(async (resolve, reject) => {
       try {
-        const content = fs.readFileSync(this.dbPath, 'utf-8')
-        this.data = JSON.parse(content)
-      } catch (error) {
-        console.error('Failed to load data, using defaults:', error)
+        const SQL = await initSqlJs()
+
+        if (fs.existsSync(this.dbPath)) {
+          const fileBuffer = fs.readFileSync(this.dbPath)
+          this.db = new SQL.Database(fileBuffer)
+        } else {
+          this.db = new SQL.Database()
+        }
+
+        // 创建表
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp INTEGER NOT NULL,
+            state TEXT NOT NULL,
+            score INTEGER NOT NULL,
+            confidence REAL NOT NULL,
+            indicators TEXT NOT NULL
+          );
+        `)
+
+        this.db.run(`
+          CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+          );
+        `)
+
+        // 迁移旧 JSON 数据（如果存在）
+        this.migrateFromJson()
+
+        resolve()
+      } catch (err) {
+        console.error('[Database] Init error:', err)
+        reject(err)
       }
-    }
+    })
+
+    return this.DB_LOAD_PROMISE
   }
 
-  private save(): void {
+  // 从旧版 JSON 迁移数据
+  private migrateFromJson() {
     try {
-      fs.writeFileSync(this.dbPath, JSON.stringify(this.data, null, 2))
-    } catch (error) {
-      console.error('Failed to save data:', error)
+      const oldJsonPath = path.join(this.dataDir, 'data.json')
+      if (fs.existsSync(oldJsonPath)) {
+        console.log('[Database] Migrating from JSON...')
+        const data = JSON.parse(fs.readFileSync(oldJsonPath, 'utf8'))
+
+        // 迁移历史记录
+        if (data.history && Array.isArray(data.history) && this.db) {
+          const stmt = this.db.prepare(`
+            INSERT INTO history (timestamp, state, score, confidence, indicators)
+            VALUES (?, ?, ?, ?, ?)
+          `)
+
+          this.db.run('BEGIN TRANSACTION;')
+          for (const item of data.history) {
+            stmt.run([
+              item.timestamp,
+              item.state,
+              item.score,
+              item.confidence,
+              JSON.stringify(item.indicators || [])
+            ])
+          }
+          this.db.run('COMMIT;')
+          stmt.free()
+        }
+
+        // 迁移设置
+        if (data.settings) {
+          this.updateSettings(data.settings)
+        }
+
+        // 重命名旧文件作为备份
+        fs.renameSync(oldJsonPath, oldJsonPath + '.bak')
+        this.saveDb()
+        console.log('[Database] Migration complete.')
+      }
+    } catch (err) {
+      console.error('[Database] Migration failed:', err)
+      if (this.db) this.db.run('ROLLBACK;')
     }
   }
 
-  // 保存状态快照
-  saveStatusSnapshot(status: StatusSnapshot): void {
-    this.data.history.push(status)
-    
-    // 只保留最近 1000 条记录
-    if (this.data.history.length > 1000) {
-      this.data.history = this.data.history.slice(-1000)
+  // 保存数据库到磁盘
+  private saveDb() {
+    if (!this.db) return
+    const data = this.db.export()
+    const buffer = Buffer.from(data)
+    fs.writeFileSync(this.dbPath, buffer)
+  }
+
+  // ================= 接口方法 =================
+
+  async saveHistory(snapshot: StatusSnapshot): Promise<void> {
+    await this.init()
+    if (!this.db) return
+
+    try {
+      this.db.run(`
+        INSERT INTO history (timestamp, state, score, confidence, indicators)
+        VALUES (?, ?, ?, ?, ?)
+      `, [
+        snapshot.timestamp,
+        snapshot.state,
+        snapshot.score,
+        snapshot.confidence,
+        JSON.stringify(snapshot.indicators)
+      ])
+
+      // 每保存 10 条历史或立即写入磁盘（取决于性能考量，此处为简单实现立即保存）
+      this.saveDb()
+    } catch (err) {
+      console.error('[Database] Failed to save history:', err)
     }
-    
-    this.save()
   }
 
-  // 获取历史记录
-  getHistory(start: number, end: number): StatusSnapshot[] {
-    return this.data.history.filter(
-      (record) => record.timestamp >= start && record.timestamp <= end
-    )
+  async getHistory(startTime: number, endTime: number): Promise<StatusSnapshot[]> {
+    await this.init()
+    if (!this.db) return []
+
+    try {
+      const stmt = this.db.prepare(`
+        SELECT * FROM history 
+        WHERE timestamp >= ? AND timestamp <= ? 
+        ORDER BY timestamp ASC
+      `)
+
+      stmt.bind([startTime, endTime])
+      const results: StatusSnapshot[] = []
+
+      while (stmt.step()) {
+        const row = stmt.getAsObject()
+        results.push({
+          timestamp: row.timestamp as number,
+          state: row.state as StatusSnapshot['state'],
+          score: row.score as number,
+          confidence: row.confidence as number,
+          indicators: JSON.parse(row.indicators as string)
+        })
+      }
+
+      stmt.free()
+      return results
+    } catch (err) {
+      console.error('[Database] Failed to get history:', err)
+      return []
+    }
   }
 
-  // 获取今日统计
-  getTodayStats(): { 
-    totalFocusedTime: number
-    totalFatiguedTime: number
-    totalStuckTime: number
-    totalFrustratedTime: number
-    averageScore: number
-  } {
+  async getTodayStats() {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
-    const startOfDay = today.getTime()
-    const endOfDay = startOfDay + 24 * 60 * 60 * 1000
+    const startTime = today.getTime()
+    const endTime = startTime + 86400000
 
-    const todayRecords = this.getHistory(startOfDay, endOfDay)
-    
-    const stats = {
-      totalFocusedTime: 0,
-      totalFatiguedTime: 0,
-      totalStuckTime: 0,
-      totalFrustratedTime: 0,
-      averageScore: 0
-    }
+    const history = await this.getHistory(startTime, endTime)
 
+    // 我们仍然使用 JavaScript 处理聚合，因为需要根据时间片段加权
+    // 如果用 SQL 会比较复杂 (计算两条记录之间的时间差)
+    let totalFocusedTime = 0
+    let totalFatiguedTime = 0
+    let totalStuckTime = 0
+    let totalFrustratedTime = 0
     let totalScore = 0
-    const stateCounts: Record<string, number> = {
-      focused: 0,
-      fatigued: 0,
-      stuck: 0,
-      frustrated: 0
-    }
 
-    for (const record of todayRecords) {
+    // 这里采用与之前同样的估算逻辑：每条记录代表 10 秒
+    const timePerRecord = 10 * 1000
+
+    for (const record of history) {
+      if (record.state === 'focused') totalFocusedTime += timePerRecord
+      else if (record.state === 'fatigued') totalFatiguedTime += timePerRecord
+      else if (record.state === 'stuck') totalStuckTime += timePerRecord
+      else if (record.state === 'frustrated') totalFrustratedTime += timePerRecord
+
       totalScore += record.score
-      if (stateCounts[record.state] !== undefined) {
-        stateCounts[record.state]++
-      }
     }
 
-    // 每条记录代表约10秒，转换为分钟
-    stats.totalFocusedTime = Math.round(stateCounts.focused * 10 / 60)
-    stats.totalFatiguedTime = Math.round(stateCounts.fatigued * 10 / 60)
-    stats.totalStuckTime = Math.round(stateCounts.stuck * 10 / 60)
-    stats.totalFrustratedTime = Math.round(stateCounts.frustrated * 10 / 60)
-    stats.averageScore = todayRecords.length > 0 
-      ? Math.round(totalScore / todayRecords.length) 
-      : 0
+    const averageScore = history.length > 0 ? Math.round(totalScore / history.length) : 0
 
-    return stats
+    return {
+      totalFocusedTime: Math.round(totalFocusedTime / 60000), // 转换为分钟
+      totalFatiguedTime: Math.round(totalFatiguedTime / 60000),
+      totalStuckTime: Math.round(totalStuckTime / 60000),
+      totalFrustratedTime: Math.round(totalFrustratedTime / 60000),
+      averageScore
+    }
   }
 
-  // 获取设置
-  getSettings(): AppSettings {
-    return this.data.settings
+  async getSettings(): Promise<AppSettings> {
+    await this.init()
+    if (this.cachedSettings) return this.cachedSettings
+
+    if (!this.db) return this.defaultSettings
+
+    try {
+      const stmt = this.db.prepare('SELECT key, value FROM settings')
+      const settings: Partial<AppSettings> = {}
+
+      while (stmt.step()) {
+        const row = stmt.getAsObject()
+        const key = row.key as keyof AppSettings
+        try {
+          // @ts-ignore
+          settings[key] = JSON.parse(row.value as string)
+        } catch (e) { }
+      }
+      stmt.free()
+
+      this.cachedSettings = { ...this.defaultSettings, ...settings }
+      return this.cachedSettings
+    } catch (err) {
+      console.error('[Database] Failed to get settings:', err)
+      return this.defaultSettings
+    }
   }
 
-  // 更新设置
-  updateSettings(settings: Partial<AppSettings>): void {
-    this.data.settings = { ...this.data.settings, ...settings }
-    this.save()
+  async updateSettings(settings: Partial<AppSettings>): Promise<void> {
+    await this.init()
+    if (!this.db) return
+
+    try {
+      this.db.run('BEGIN TRANSACTION;')
+      const stmt = this.db.prepare(`
+        INSERT OR REPLACE INTO settings (key, value) 
+        VALUES (?, ?)
+      `)
+
+      for (const [key, value] of Object.entries(settings)) {
+        stmt.run([key, JSON.stringify(value)])
+      }
+
+      this.db.run('COMMIT;')
+      stmt.free()
+
+      // 更新缓存
+      const current = await this.getSettings()
+      this.cachedSettings = { ...current, ...settings }
+
+      this.saveDb()
+    } catch (err) {
+      console.error('[Database] Failed to update settings:', err)
+      if (this.db) this.db.run('ROLLBACK;')
+    }
   }
 
-  // 清理旧数据（保留30天）
-  cleanupOldData(): void {
-    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000
-    this.data.history = this.data.history.filter(
-      (record) => record.timestamp >= thirtyDaysAgo
-    )
-    this.save()
-  }
-
-  // 关闭（保存数据）
   close(): void {
-    this.save()
+    if (this.db) {
+      this.saveDb() // 确保最后一次写入
+      this.db.close()
+      this.db = null
+    }
   }
 }
 
-export default AppDatabase
+export default new AppDatabase()
