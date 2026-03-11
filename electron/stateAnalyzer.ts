@@ -6,7 +6,17 @@ class StateAnalyzer {
   private activityHistory: ActivityData[] = []
   private stateHistory: { state: DeveloperState; timestamp: number }[] = []
   private readonly HISTORY_SIZE = 30 // 保留最近30个数据点 (约5分钟)
-  
+
+  // 状态平滑 - 防止状态频繁跳动
+  private currentState: DeveloperState = 'normal'
+  private pendingState: DeveloperState | null = null
+  private pendingStateCount: number = 0
+  private readonly MIN_STATE_PERSISTENCE = 3 // 新状态需要连续出现3次才切换
+
+  // 分数平滑 (指数移动平均)
+  private smoothedScore: number = 60
+  private readonly SCORE_SMOOTHING = 0.3 // 平滑系数 (0-1, 越小越平滑)
+
   // 默认设置
   private settings: AppSettings = {
     notificationsEnabled: true,
@@ -21,7 +31,7 @@ class StateAnalyzer {
   // 工作开始时间
   private workStartTime: number = Date.now()
 
-  constructor() {}
+  constructor() { }
 
   // 更新设置
   updateSettings(settings: AppSettings): void {
@@ -38,25 +48,52 @@ class StateAnalyzer {
 
     // 计算各项指标
     const metrics = this.calculateMetrics(data)
-    
-    // 识别状态
-    const state = this.identifyState(metrics)
-    
-    // 计算效率分数
-    const score = this.calculateScore(state, metrics)
-    
+
+    // 识别原始状态 (未平滑)
+    const rawState = this.identifyState(metrics)
+
+    // 状态平滑：新状态需要连续出现 MIN_STATE_PERSISTENCE 次才切换
+    if (rawState !== this.currentState) {
+      if (rawState === this.pendingState) {
+        this.pendingStateCount++
+        if (this.pendingStateCount >= this.MIN_STATE_PERSISTENCE) {
+          this.currentState = rawState
+          this.pendingState = null
+          this.pendingStateCount = 0
+        }
+      } else {
+        this.pendingState = rawState
+        this.pendingStateCount = 1
+      }
+    } else {
+      // 当前状态被再次确认，清除待定状态
+      this.pendingState = null
+      this.pendingStateCount = 0
+    }
+
+    const state = this.currentState
+
+    // 计算原始效率分数
+    const rawScore = this.calculateScore(state, metrics)
+
+    // 分数平滑 (指数移动平均)
+    this.smoothedScore = Math.round(
+      this.SCORE_SMOOTHING * rawScore + (1 - this.SCORE_SMOOTHING) * this.smoothedScore
+    )
+    const score = this.smoothedScore
+
     // 计算置信度
     const confidence = this.calculateConfidence(metrics)
-    
+
     // 计算持续时间
     const { fatigueDuration, stuckDuration } = this.calculateDurations()
-    
+
     // 计算烦躁程度
     const frustrationLevel = this.calculateFrustrationLevel(metrics)
-    
+
     // 计算连续工作时间
     const continuousWorkTime = Date.now() - this.workStartTime
-    
+
     // 生成状态指示器
     const indicators = this.generateIndicators(state, metrics)
 
@@ -81,28 +118,28 @@ class StateAnalyzer {
   // 计算各项指标
   private calculateMetrics(data: ActivityData) {
     const history = this.activityHistory
-    
+
     // 平均打字速度
     const avgTypingSpeed = this.average(history.map(h => h.typingSpeed))
-    
+
     // 打字速度趋势 (最近 vs 之前)
     const typingTrend = this.calculateTrend(history.map(h => h.typingSpeed))
-    
+
     // 平均鼠标速度
     const avgMouseSpeed = this.average(history.map(h => h.mouseSpeed))
-    
+
     // 点击频率
     const avgClickFrequency = this.average(history.map(h => h.clickFrequency))
-    
+
     // 点击频率变化率
     const clickTrend = this.calculateTrend(history.map(h => h.clickFrequency))
-    
+
     // 空闲时间比例
     const avgIdleTime = this.average(history.map(h => h.idleTime))
     const idleRatio = avgIdleTime / 60000 // 转换为分钟比例
-    
+
     // 活动变化率 (用于检测烦躁)
-    const activityVariance = this.variance(history.map(h => 
+    const activityVariance = this.variance(history.map(h =>
       h.typingSpeed + h.clickFrequency + h.scrollFrequency
     ))
 
@@ -127,9 +164,9 @@ class StateAnalyzer {
 
   // 识别状态
   private identifyState(metrics: ReturnType<typeof this.calculateMetrics>): DeveloperState {
-    const { 
+    const {
       avgTypingSpeed, typingTrend, avgClickFrequency, clickTrend,
-      idleRatio, activityVariance, typingRhythm, currentIdleTime 
+      idleRatio, activityVariance, typingRhythm, currentIdleTime
     } = metrics
 
     // 1. 检测疲劳状态
@@ -165,8 +202,8 @@ class StateAnalyzer {
     // 4. 检测专注状态
     // 特征：稳定的中高速输入、稳定的节奏、低空闲时间
     if (
-      avgTypingSpeed > 60 && 
-      typingRhythm > 0.6 && 
+      avgTypingSpeed > 60 &&
+      typingRhythm > 0.6 &&
       idleRatio < 0.2 &&
       typingTrend >= -0.1
     ) {
@@ -179,7 +216,7 @@ class StateAnalyzer {
 
   // 计算效率分数
   private calculateScore(
-    state: DeveloperState, 
+    state: DeveloperState,
     metrics: ReturnType<typeof this.calculateMetrics>
   ): number {
     let score = 50 // 基础分
@@ -189,22 +226,22 @@ class StateAnalyzer {
         // 专注状态：高分
         score = 80 + Math.min(20, metrics.avgTypingSpeed / 10)
         break
-        
+
       case 'normal':
         // 正常状态：中等分数
         score = 60 + Math.min(15, metrics.avgTypingSpeed / 10)
         break
-        
+
       case 'stuck':
         // 卡住状态：较低分数，但说明在思考
         score = 40 + Math.min(10, metrics.avgClickFrequency / 5)
         break
-        
+
       case 'fatigued':
         // 疲劳状态：低分 (10-30)
         score = 20 + Math.max(0, 10 - metrics.idleRatio * 10)
         break
-        
+
       case 'frustrated':
         // 烦躁状态：较低分数
         score = 35
@@ -220,10 +257,10 @@ class StateAnalyzer {
     // 数据越多、越稳定，置信度越高
     const dataPoints = this.activityHistory.length
     const dataConfidence = Math.min(1, dataPoints / 10)
-    
+
     // 指标一致性
     const consistency = 1 - Math.min(1, metrics.activityVariance / 500)
-    
+
     return Math.round((dataConfidence * 0.5 + consistency * 0.5) * 100) / 100
   }
 
@@ -231,11 +268,11 @@ class StateAnalyzer {
   private calculateDurations(): { fatigueDuration: number; stuckDuration: number } {
     let fatigueDuration = 0
     let stuckDuration = 0
-    
+
     // 从最近的记录开始，计算连续状态持续时间
     for (let i = this.stateHistory.length - 1; i >= 0; i--) {
       const record = this.stateHistory[i]
-      
+
       if (record.state === 'fatigued') {
         fatigueDuration += 10 * 1000 // 每条记录约10秒
       } else if (record.state === 'stuck') {
@@ -244,31 +281,31 @@ class StateAnalyzer {
         break
       }
     }
-    
+
     return { fatigueDuration, stuckDuration }
   }
 
   // 计算烦躁程度
   private calculateFrustrationLevel(metrics: ReturnType<typeof this.calculateMetrics>): number {
     const { activityVariance, clickTrend, typingRhythm } = metrics
-    
+
     let level = 0
-    
+
     // 活动变化大 -> 更烦躁
     level += Math.min(0.4, activityVariance / 500)
-    
+
     // 点击频率增加 -> 更烦躁
     level += Math.min(0.3, Math.max(0, clickTrend))
-    
+
     // 打字节奏乱 -> 更烦躁
     level += Math.min(0.3, 1 - typingRhythm)
-    
+
     return Math.min(1, level)
   }
 
   // 生成状态指示器说明
   private generateIndicators(
-    state: DeveloperState, 
+    state: DeveloperState,
     metrics: ReturnType<typeof this.calculateMetrics>
   ): string[] {
     const indicators: string[] = []
@@ -283,7 +320,7 @@ class StateAnalyzer {
         }
         indicators.push('进入心流状态')
         break
-        
+
       case 'fatigued':
         if (metrics.idleRatio > 0.5) {
           indicators.push(`空闲时间占比：${Math.round(metrics.idleRatio * 100)}%`)
@@ -293,7 +330,7 @@ class StateAnalyzer {
         }
         indicators.push('建议休息一下')
         break
-        
+
       case 'stuck':
         indicators.push('检测到思考或查阅资料')
         if (metrics.avgClickFrequency > metrics.avgTypingSpeed) {
@@ -301,7 +338,7 @@ class StateAnalyzer {
         }
         indicators.push('换个思路试试？')
         break
-        
+
       case 'frustrated':
         if (metrics.activityVariance > 150) {
           indicators.push('活动模式不稳定')
@@ -311,7 +348,7 @@ class StateAnalyzer {
         }
         indicators.push('深呼吸，放松一下')
         break
-        
+
       case 'normal':
         indicators.push('状态正常')
         if (metrics.avgTypingSpeed > 40) {
@@ -339,10 +376,10 @@ class StateAnalyzer {
   // 辅助函数：计算趋势 (正值表示上升，负值表示下降)
   private calculateTrend(values: number[]): number {
     if (values.length < 3) return 0
-    
+
     const recent = this.average(values.slice(-5))
     const earlier = this.average(values.slice(0, -5))
-    
+
     if (earlier === 0) return recent > 0 ? 1 : 0
     return (recent - earlier) / earlier
   }
@@ -350,14 +387,14 @@ class StateAnalyzer {
   // 辅助函数：计算节奏一致性 (0-1，越高越稳定)
   private calculateRhythm(values: number[]): number {
     if (values.length < 5) return 0.5
-    
+
     const changes: number[] = []
     for (let i = 1; i < values.length; i++) {
       if (values[i - 1] > 0) {
         changes.push(Math.abs(values[i] - values[i - 1]) / values[i - 1])
       }
     }
-    
+
     if (changes.length === 0) return 0.5
     const avgChange = this.average(changes)
     return Math.max(0, 1 - avgChange)

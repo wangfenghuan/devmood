@@ -1,37 +1,38 @@
 import { useState, useEffect, useCallback } from 'react'
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
+import {
+  ConfigProvider, theme, Card, Typography, Tag, Progress,
+  Segmented, Statistic, Row, Col, Alert, Steps, Switch,
+  InputNumber, Button, Space, Drawer, Tooltip, Badge
+} from 'antd'
+import {
+  SettingOutlined, SafetyOutlined, ThunderboltOutlined,
+  CoffeeOutlined, QuestionCircleOutlined, FrownOutlined,
+  DashboardOutlined, BarChartOutlined, CheckCircleOutlined,
+  ExclamationCircleOutlined
+} from '@ant-design/icons'
+import { AreaChart, Area, XAxis, YAxis, Tooltip as ReTooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { DeveloperState, STATE_LABELS, CurrentStatus, AppSettings, StatusSnapshot } from './types'
 
-// 格式化时间（分钟转为小时:分钟）
+const { Title, Text, Paragraph } = Typography
+
+// 格式化时间
 function formatMinutes(minutes: number): string {
-  if (minutes < 60) {
-    return `${minutes}分钟`
-  }
+  if (minutes < 60) return `${minutes}分钟`
   const hours = Math.floor(minutes / 60)
   const mins = minutes % 60
-  return mins > 0 ? `${hours}小时${mins}分钟` : `${hours}小时`
+  return mins > 0 ? `${hours}h${mins}m` : `${hours}h`
 }
 
-// 获取状态表情
-function getStateEmoji(state: DeveloperState): string {
-  const emojis: Record<DeveloperState, string> = {
-    focused: '🎯',
-    fatigued: '😴',
-    stuck: '🤔',
-    frustrated: '😤',
-    normal: '😐'
-  }
-  return emojis[state]
+// 状态配置
+const STATE_CONFIG: Record<DeveloperState, { emoji: string; color: string; icon: React.ReactNode }> = {
+  focused: { emoji: '🎯', color: '#10B981', icon: <ThunderboltOutlined /> },
+  fatigued: { emoji: '😴', color: '#818cf8', icon: <CoffeeOutlined /> },
+  stuck: { emoji: '🤔', color: '#fbbf24', icon: <QuestionCircleOutlined /> },
+  frustrated: { emoji: '😤', color: '#f87171', icon: <FrownOutlined /> },
+  normal: { emoji: '😐', color: '#94a3b8', icon: <DashboardOutlined /> }
 }
 
-// 状态颜色
-const STATE_COLORS: Record<string, string> = {
-  focused: '#10B981',
-  fatigued: '#818cf8',
-  stuck: '#fbbf24',
-  frustrated: '#f87171',
-  normal: '#94a3b8'
-}
+const PIE_COLORS = ['#10B981', '#818cf8', '#fbbf24', '#f87171']
 
 // 自定义Tooltip
 function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number }>; label?: string }) {
@@ -42,20 +43,17 @@ function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: 
         border: '1px solid rgba(255,255,255,0.1)',
         borderRadius: 10,
         padding: '10px 14px',
-        backdropFilter: 'blur(10px)',
         fontSize: 12,
       }}>
-        <p style={{ color: '#a1a1b5', marginBottom: 4 }}>{label}</p>
-        <p style={{ color: '#a78bfa', fontWeight: 700, fontSize: 16 }}>
-          {Math.round(payload[0].value)} 分
-        </p>
+        <Text type="secondary">{label}</Text>
+        <div><Text strong style={{ color: '#a78bfa', fontSize: 16 }}>{Math.round(payload[0].value)} 分</Text></div>
       </div>
     )
   }
   return null
 }
 
-type TabType = 'status' | 'chart'
+type TabType = '实时状态' | '数据分析'
 
 function App() {
   const [status, setStatus] = useState<CurrentStatus | null>(null)
@@ -68,459 +66,452 @@ function App() {
   } | null>(null)
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [showSettings, setShowSettings] = useState(false)
-  const [activeTab, setActiveTab] = useState<TabType>('status')
+  const [activeTab, setActiveTab] = useState<TabType>('实时状态')
   const [historyData, setHistoryData] = useState<StatusSnapshot[]>([])
+  const [permissionGranted, setPermissionGranted] = useState<boolean | null>(null)
 
-  // 获取当前状态
   const fetchStatus = useCallback(async () => {
     try {
-      const currentStatus = await window.electronAPI.getCurrentStatus()
-      setStatus(currentStatus)
-    } catch (error) {
-      console.error('Failed to get current status:', error)
-    }
+      setStatus(await window.electronAPI.getCurrentStatus())
+    } catch (e) { console.error(e) }
   }, [])
 
-  // 获取今日统计
   const fetchTodayStats = useCallback(async () => {
     try {
-      const stats = await window.electronAPI.getTodayStats()
-      setTodayStats(stats)
-    } catch (error) {
-      console.error('Failed to get today stats:', error)
-    }
+      setTodayStats(await window.electronAPI.getTodayStats())
+    } catch (e) { console.error(e) }
   }, [])
 
-  // 获取设置
   const fetchSettings = useCallback(async () => {
     try {
-      const appSettings = await window.electronAPI.getSettings()
-      setSettings(appSettings)
-    } catch (error) {
-      console.error('Failed to get settings:', error)
-    }
+      setSettings(await window.electronAPI.getSettings())
+    } catch (e) { console.error(e) }
   }, [])
 
-  // 获取历史数据
   const fetchHistory = useCallback(async () => {
     try {
       const today = new Date()
       today.setHours(0, 0, 0, 0)
       const start = today.getTime()
-      const end = start + 24 * 60 * 60 * 1000
-      const history = await window.electronAPI.getHistory(start, end)
-      setHistoryData(history)
-    } catch (error) {
-      console.error('Failed to get history:', error)
-    }
+      setHistoryData(await window.electronAPI.getHistory(start, start + 86400000))
+    } catch (e) { console.error(e) }
   }, [])
 
-  // 初始化
+  const fetchPermission = useCallback(async () => {
+    try {
+      const res = await window.electronAPI.getPermissionStatus()
+      setPermissionGranted(res.granted)
+    } catch (e) { console.error(e) }
+  }, [])
+
   useEffect(() => {
-    fetchStatus()
-    fetchTodayStats()
-    fetchSettings()
-    fetchHistory()
-
-    // 监听状态更新
-    const unsubscribe = window.electronAPI.onStatusUpdate((newStatus) => {
-      setStatus(newStatus)
-      fetchTodayStats()
-      fetchHistory()
+    fetchStatus(); fetchTodayStats(); fetchSettings(); fetchHistory(); fetchPermission()
+    const unsubscribe = window.electronAPI.onStatusUpdate((s) => {
+      setStatus(s); fetchTodayStats(); fetchHistory(); fetchPermission()
     })
+    // 定时检查权限
+    const permTimer = setInterval(fetchPermission, 5000)
+    return () => { unsubscribe(); clearInterval(permTimer) }
+  }, [fetchStatus, fetchTodayStats, fetchSettings, fetchHistory, fetchPermission])
 
-    return () => {
-      unsubscribe()
-    }
-  }, [fetchStatus, fetchTodayStats, fetchSettings, fetchHistory])
-
-  // 更新设置
   const updateSettings = async (key: keyof AppSettings, value: unknown) => {
     if (!settings) return
-    const newSettings = { ...settings, [key]: value }
-    setSettings(newSettings)
+    setSettings({ ...settings, [key]: value })
     await window.electronAPI.updateSettings({ [key]: value })
   }
 
-  // 计算今日总时间
   const totalTime = todayStats
     ? todayStats.totalFocusedTime + todayStats.totalFatiguedTime +
     todayStats.totalStuckTime + todayStats.totalFrustratedTime
     : 0
 
-  // 图表数据：效率分数趋势
   const chartData = historyData.map((item) => {
-    const date = new Date(item.timestamp)
-    return {
-      time: `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`,
-      score: item.score,
-      typingSpeed: item.typingSpeed,
-    }
+    const d = new Date(item.timestamp)
+    return { time: `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`, score: item.score }
   })
 
-  // 饼图数据：状态分布
   const pieData = todayStats ? [
-    { name: '专注', value: todayStats.totalFocusedTime, color: STATE_COLORS.focused },
-    { name: '疲劳', value: todayStats.totalFatiguedTime, color: STATE_COLORS.fatigued },
-    { name: '卡住', value: todayStats.totalStuckTime, color: STATE_COLORS.stuck },
-    { name: '烦躁', value: todayStats.totalFrustratedTime, color: STATE_COLORS.frustrated },
+    { name: '专注', value: todayStats.totalFocusedTime },
+    { name: '疲劳', value: todayStats.totalFatiguedTime },
+    { name: '卡住', value: todayStats.totalStuckTime },
+    { name: '烦躁', value: todayStats.totalFrustratedTime },
   ].filter(d => d.value > 0) : []
 
-  // 状态分布统计
-  const stateDistribution: Record<string, number> = {}
-  historyData.forEach(item => {
-    stateDistribution[item.state] = (stateDistribution[item.state] || 0) + 1
-  })
+  const stateConf = status ? STATE_CONFIG[status.state] : STATE_CONFIG.normal
 
   return (
-    <div className="app-container">
-      {/* 头部 */}
-      <div className="header">
-        <h1>DevMood</h1>
-        <p>开发者状态助手</p>
-      </div>
-
-      {/* Tab 切换 */}
-      <div className="tab-bar clickable">
-        <button
-          className={`tab-btn clickable ${activeTab === 'status' ? 'active' : ''}`}
-          onClick={() => setActiveTab('status')}
-        >
-          实时状态
-        </button>
-        <button
-          className={`tab-btn clickable ${activeTab === 'chart' ? 'active' : ''}`}
-          onClick={() => setActiveTab('chart')}
-        >
-          数据分析
-        </button>
-      </div>
-
-      {/* Tab 内容 */}
-      {activeTab === 'status' ? (
-        /* ==================== 实时状态面板 ==================== */
-        <div className="fade-in">
-          {/* 状态卡片 */}
-          <div className="status-card">
-            <div className="state-display">
-              <div className="state-emoji">{status ? getStateEmoji(status.state) : '🔄'}</div>
-              <div className={`state-label ${status?.state || ''}`}>
-                {status ? STATE_LABELS[status.state] : '加载中...'}
-              </div>
-            </div>
-
-            {/* 效率分数 */}
-            <div className="score-section">
-              <div className="score-value">{status?.score || 0}</div>
-              <div className="score-label">效率分数</div>
-            </div>
-
-            {/* 指标 */}
-            {status?.analysis?.indicators && status.analysis.indicators.length > 0 && (
-              <ul className="indicators">
-                {status.analysis.indicators.map((indicator, index) => (
-                  <li key={index}>{indicator}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {/* 实时统计 */}
-          <div className="stats-grid">
-            <div className="stat-item">
-              <div className="stat-value">{status?.stats.typingSpeed || 0}</div>
-              <div className="stat-label">击键/分钟</div>
-            </div>
-            <div className="stat-item">
-              <div className="stat-value">{status?.stats.clickFrequency || 0}</div>
-              <div className="stat-label">点击/分钟</div>
-            </div>
-            <div className="stat-item">
-              <div className="stat-value">{Math.round((status?.stats.mouseSpeed || 0) / 1000)}</div>
-              <div className="stat-label">鼠标速度</div>
-            </div>
-            <div className="stat-item">
-              <div className="stat-value">
-                {status?.stats.idleTime
-                  ? Math.round(status.stats.idleTime / 1000)
-                  : 0}s
-              </div>
-              <div className="stat-label">空闲时间</div>
-            </div>
-          </div>
-
-          {/* 今日统计 */}
-          {todayStats && totalTime > 0 && (
-            <div className="today-stats fade-in">
-              <h3>今日状态分布</h3>
-              <div className="time-bars">
-                <div className="time-bar-item">
-                  <span className="time-bar-label">🎯 专注</span>
-                  <div className="time-bar-container">
-                    <div
-                      className="time-bar-fill focused"
-                      style={{ width: `${(todayStats.totalFocusedTime / totalTime) * 100}%` }}
-                    />
-                  </div>
-                  <span className="time-bar-value">{formatMinutes(todayStats.totalFocusedTime)}</span>
-                </div>
-                <div className="time-bar-item">
-                  <span className="time-bar-label">😴 疲劳</span>
-                  <div className="time-bar-container">
-                    <div
-                      className="time-bar-fill fatigued"
-                      style={{ width: `${(todayStats.totalFatiguedTime / totalTime) * 100}%` }}
-                    />
-                  </div>
-                  <span className="time-bar-value">{formatMinutes(todayStats.totalFatiguedTime)}</span>
-                </div>
-                <div className="time-bar-item">
-                  <span className="time-bar-label">🤔 卡住</span>
-                  <div className="time-bar-container">
-                    <div
-                      className="time-bar-fill stuck"
-                      style={{ width: `${(todayStats.totalStuckTime / totalTime) * 100}%` }}
-                    />
-                  </div>
-                  <span className="time-bar-value">{formatMinutes(todayStats.totalStuckTime)}</span>
-                </div>
-                <div className="time-bar-item">
-                  <span className="time-bar-label">😤 烦躁</span>
-                  <div className="time-bar-container">
-                    <div
-                      className="time-bar-fill frustrated"
-                      style={{ width: `${(todayStats.totalFrustratedTime / totalTime) * 100}%` }}
-                    />
-                  </div>
-                  <span className="time-bar-value">{formatMinutes(todayStats.totalFrustratedTime)}</span>
-                </div>
-              </div>
-              <div style={{ marginTop: 16, textAlign: 'center' }}>
-                <span style={{ color: '#6b6b80', fontSize: 12 }}>
-                  平均分数: <span style={{ color: '#a78bfa', fontWeight: 600 }}>{todayStats.averageScore}</span>
-                </span>
-              </div>
-            </div>
-          )}
+    <ConfigProvider
+      theme={{
+        algorithm: theme.darkAlgorithm,
+        token: {
+          colorPrimary: '#6366f1',
+          borderRadius: 12,
+          fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif',
+          colorBgContainer: 'rgba(255,255,255,0.04)',
+          colorBgElevated: '#1a1a2e',
+        },
+        components: {
+          Card: { colorBgContainer: 'rgba(255,255,255,0.04)' },
+          Drawer: { colorBgElevated: '#12122a' },
+        }
+      }}
+    >
+      <div className="app-container">
+        {/* 头部 */}
+        <div className="header">
+          <Title level={4} style={{
+            margin: 0,
+            background: 'linear-gradient(135deg, #818cf8, #c084fc)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent'
+          }}>
+            DevMood
+          </Title>
+          <Text type="secondary" style={{ fontSize: 11, letterSpacing: 2 }}>开发者状态助手</Text>
         </div>
-      ) : (
-        /* ==================== 数据分析面板 ==================== */
-        <div className="fade-in">
-          {/* 效率分数趋势图 */}
-          <div className="chart-card">
-            <h3 className="chart-title">📈 效率分数趋势</h3>
-            {chartData.length > 0 ? (
-              <div className="chart-container">
-                <ResponsiveContainer width="100%" height={200}>
+
+        {/* 权限提示 */}
+        {permissionGranted === false && (
+          <Alert
+            message="需要辅助功能权限"
+            description={
+              <Steps
+                direction="vertical"
+                size="small"
+                current={0}
+                items={[
+                  { title: '打开系统设置', description: '隐私与安全性 → 辅助功能' },
+                  { title: '找到 Electron 或 DevMood', description: '勾选开关启用权限' },
+                  { title: '权限授予后自动生效', description: '无需重启应用' },
+                ]}
+              />
+            }
+            type="warning"
+            showIcon
+            icon={<SafetyOutlined />}
+            style={{ marginBottom: 16, borderRadius: 12 }}
+            closable
+          />
+        )}
+
+        {/* Tab 切换 */}
+        <Segmented
+          value={activeTab}
+          onChange={(v) => setActiveTab(v as TabType)}
+          options={[
+            { label: '实时状态', value: '实时状态', icon: <DashboardOutlined /> },
+            { label: '数据分析', value: '数据分析', icon: <BarChartOutlined /> },
+          ]}
+          block
+          style={{ marginBottom: 16 }}
+        />
+
+        {activeTab === '实时状态' ? (
+          <div>
+            {/* 状态卡片 */}
+            <Card style={{ marginBottom: 12, textAlign: 'center' }} styles={{ body: { padding: '24px 16px' } }}>
+              <div style={{ fontSize: 52, marginBottom: 8, lineHeight: 1 }} className="state-emoji">
+                {status ? stateConf.emoji : '🔄'}
+              </div>
+              <Tag
+                color={stateConf.color}
+                style={{ fontSize: 16, padding: '4px 16px', fontWeight: 700, border: 'none' }}
+              >
+                {status ? STATE_LABELS[status.state] : '加载中...'}
+              </Tag>
+
+              <div style={{ margin: '20px 0' }}>
+                <Progress
+                  type="dashboard"
+                  percent={status?.score || 0}
+                  strokeColor={{
+                    '0%': '#6366f1',
+                    '100%': '#a78bfa',
+                  }}
+                  format={(p) => (
+                    <div>
+                      <div style={{ fontSize: 32, fontWeight: 800, color: '#e4e4e7' }}>{p}</div>
+                      <div style={{ fontSize: 10, color: '#6b6b80', textTransform: 'uppercase', letterSpacing: 1 }}>效率分数</div>
+                    </div>
+                  )}
+                  size={140}
+                />
+              </div>
+
+              {/* 指标 */}
+              {status?.analysis?.indicators && status.analysis.indicators.length > 0 && (
+                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  {status.analysis.indicators.map((ind, i) => (
+                    <Text key={i} type="secondary" style={{ fontSize: 13 }}>• {ind}</Text>
+                  ))}
+                </Space>
+              )}
+            </Card>
+
+            {/* 实时统计 */}
+            <Row gutter={[8, 8]} style={{ marginBottom: 12 }}>
+              <Col span={12}>
+                <Card size="small" styles={{ body: { padding: '12px 8px', textAlign: 'center' } }}>
+                  <Statistic
+                    title={<Text type="secondary" style={{ fontSize: 10 }}>击键/分钟</Text>}
+                    value={status?.stats.typingSpeed || 0}
+                    valueStyle={{ fontSize: 22, fontWeight: 700 }}
+                  />
+                </Card>
+              </Col>
+              <Col span={12}>
+                <Card size="small" styles={{ body: { padding: '12px 8px', textAlign: 'center' } }}>
+                  <Statistic
+                    title={<Text type="secondary" style={{ fontSize: 10 }}>点击/分钟</Text>}
+                    value={status?.stats.clickFrequency || 0}
+                    valueStyle={{ fontSize: 22, fontWeight: 700 }}
+                  />
+                </Card>
+              </Col>
+              <Col span={12}>
+                <Card size="small" styles={{ body: { padding: '12px 8px', textAlign: 'center' } }}>
+                  <Statistic
+                    title={<Text type="secondary" style={{ fontSize: 10 }}>鼠标速度</Text>}
+                    value={Math.round((status?.stats.mouseSpeed || 0) / 1000)}
+                    valueStyle={{ fontSize: 22, fontWeight: 700 }}
+                  />
+                </Card>
+              </Col>
+              <Col span={12}>
+                <Card size="small" styles={{ body: { padding: '12px 8px', textAlign: 'center' } }}>
+                  <Statistic
+                    title={<Text type="secondary" style={{ fontSize: 10 }}>空闲时间</Text>}
+                    value={status?.stats.idleTime ? Math.round(status.stats.idleTime / 1000) : 0}
+                    suffix="s"
+                    valueStyle={{ fontSize: 22, fontWeight: 700 }}
+                  />
+                </Card>
+              </Col>
+            </Row>
+
+            {/* 今日状态分布 */}
+            {todayStats && totalTime > 0 && (
+              <Card title={<Text type="secondary" style={{ fontSize: 12, letterSpacing: 1 }}>今日状态分布</Text>} size="small" style={{ marginBottom: 12 }}>
+                {[
+                  { label: '🎯 专注', value: todayStats.totalFocusedTime, color: '#10B981', cls: 'focused' },
+                  { label: '😴 疲劳', value: todayStats.totalFatiguedTime, color: '#818cf8', cls: 'fatigued' },
+                  { label: '🤔 卡住', value: todayStats.totalStuckTime, color: '#fbbf24', cls: 'stuck' },
+                  { label: '😤 烦躁', value: todayStats.totalFrustratedTime, color: '#f87171', cls: 'frustrated' },
+                ].map((item) => (
+                  <div key={item.cls} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <Text style={{ width: 64, fontSize: 12 }}>{item.label}</Text>
+                    <Progress
+                      percent={Math.round((item.value / totalTime) * 100)}
+                      strokeColor={item.color}
+                      showInfo={false}
+                      size="small"
+                      style={{ flex: 1 }}
+                    />
+                    <Text type="secondary" style={{ width: 48, textAlign: 'right', fontSize: 11 }}>
+                      {formatMinutes(item.value)}
+                    </Text>
+                  </div>
+                ))}
+                <div style={{ textAlign: 'center', marginTop: 8 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    平均分数: <Text strong style={{ color: '#a78bfa' }}>{todayStats.averageScore}</Text>
+                  </Text>
+                </div>
+              </Card>
+            )}
+
+            {/* 权限状态 */}
+            <div style={{ textAlign: 'center', marginTop: 8 }}>
+              <Tooltip title={permissionGranted ? '全局键鼠监控已激活' : '未获得辅助功能权限，数据可能不准确'}>
+                <Badge
+                  status={permissionGranted ? 'success' : 'error'}
+                  text={<Text type="secondary" style={{ fontSize: 11 }}>
+                    {permissionGranted ? '监控已激活' : '监控未激活'}
+                  </Text>}
+                />
+              </Tooltip>
+            </div>
+          </div>
+        ) : (
+          /* 数据分析面板 */
+          <div>
+            {/* 效率趋势 */}
+            <Card title="📈 效率分数趋势" size="small" style={{ marginBottom: 12 }}>
+              {chartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={180}>
                   <AreaChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
                     <defs>
-                      <linearGradient id="scoreGradient" x1="0" y1="0" x2="0" y2="1">
+                      <linearGradient id="scoreGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="#818cf8" stopOpacity={0.3} />
                         <stop offset="100%" stopColor="#818cf8" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <XAxis
-                      dataKey="time"
-                      stroke="#3f3f5c"
-                      fontSize={10}
-                      tickLine={false}
-                      axisLine={false}
-                      interval="preserveStartEnd"
-                    />
-                    <YAxis
-                      stroke="#3f3f5c"
-                      fontSize={10}
-                      tickLine={false}
-                      axisLine={false}
-                      domain={[0, 100]}
-                    />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Area
-                      type="monotone"
-                      dataKey="score"
-                      stroke="#818cf8"
-                      strokeWidth={2}
-                      fill="url(#scoreGradient)"
-                      dot={false}
-                      activeDot={{ r: 4, fill: '#a78bfa', stroke: '#0f0f1a', strokeWidth: 2 }}
-                    />
+                    <XAxis dataKey="time" stroke="#3f3f5c" fontSize={10} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                    <YAxis stroke="#3f3f5c" fontSize={10} tickLine={false} axisLine={false} domain={[0, 100]} />
+                    <ReTooltip content={<ChartTooltip />} />
+                    <Area type="monotone" dataKey="score" stroke="#818cf8" strokeWidth={2} fill="url(#scoreGrad)" dot={false} activeDot={{ r: 4, fill: '#a78bfa' }} />
                   </AreaChart>
                 </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="chart-empty">
-                <p>暂无数据，开始工作后将显示效率趋势</p>
-              </div>
-            )}
-          </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: 32 }}>
+                  <Text type="secondary">暂无数据</Text>
+                </div>
+              )}
+            </Card>
 
-          {/* 状态分布饼图 */}
-          <div className="chart-card">
-            <h3 className="chart-title">🎯 今日状态分布</h3>
-            {pieData.length > 0 ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                <div style={{ flex: 1 }}>
-                  <ResponsiveContainer width="100%" height={160}>
+            {/* 饼图 */}
+            <Card title="🎯 状态分布" size="small" style={{ marginBottom: 12 }}>
+              {pieData.length > 0 ? (
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <ResponsiveContainer width="50%" height={140}>
                     <PieChart>
-                      <Pie
-                        data={pieData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={40}
-                        outerRadius={65}
-                        paddingAngle={3}
-                        dataKey="value"
-                        strokeWidth={0}
-                      >
-                        {pieData.map((entry, index) => (
-                          <Cell key={index} fill={entry.color} />
-                        ))}
+                      <Pie data={pieData} cx="50%" cy="50%" innerRadius={35} outerRadius={55} paddingAngle={3} dataKey="value" strokeWidth={0}>
+                        {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
                       </Pie>
                     </PieChart>
                   </ResponsiveContainer>
+                  <Space direction="vertical" size={6}>
+                    {pieData.map((entry, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                        <Text style={{ fontSize: 12 }}>{entry.name}</Text>
+                        <Text type="secondary" style={{ fontSize: 11 }}>{formatMinutes(entry.value)}</Text>
+                      </div>
+                    ))}
+                  </Space>
                 </div>
-                <div className="pie-legend">
-                  {pieData.map((entry, index) => (
-                    <div key={index} className="pie-legend-item">
-                      <span className="pie-legend-dot" style={{ background: entry.color }} />
-                      <span className="pie-legend-name">{entry.name}</span>
-                      <span className="pie-legend-value">{formatMinutes(entry.value)}</span>
+              ) : (
+                <div style={{ textAlign: 'center', padding: 32 }}>
+                  <Text type="secondary">暂无数据</Text>
+                </div>
+              )}
+            </Card>
+
+            {/* 概览 */}
+            <Card title="📊 今日概览" size="small">
+              <Row gutter={[8, 8]}>
+                {[
+                  { label: '记录数', value: historyData.length, color: '#818cf8' },
+                  { label: '平均分', value: todayStats?.averageScore || 0, color: '#10B981' },
+                  { label: '总时长', value: totalTime > 0 ? formatMinutes(totalTime) : '0m', color: '#fbbf24', isStr: true },
+                  { label: '专注率', value: totalTime > 0 ? `${Math.round((todayStats!.totalFocusedTime / totalTime) * 100)}%` : '0%', color: '#10B981', isStr: true },
+                ].map((item, i) => (
+                  <Col span={12} key={i}>
+                    <div style={{ textAlign: 'center', padding: '10px 0' }}>
+                      {item.isStr ? (
+                        <div style={{ fontSize: 18, fontWeight: 700, color: item.color }}>{item.value}</div>
+                      ) : (
+                        <Statistic value={item.value as number} valueStyle={{ fontSize: 18, fontWeight: 700, color: item.color }} />
+                      )}
+                      <Text type="secondary" style={{ fontSize: 10 }}>{item.label}</Text>
                     </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="chart-empty">
-                <p>暂无数据</p>
-              </div>
-            )}
+                  </Col>
+                ))}
+              </Row>
+            </Card>
           </div>
+        )}
 
-          {/* 快速统计 */}
-          <div className="chart-card">
-            <h3 className="chart-title">📊 今日概览</h3>
-            <div className="overview-grid">
-              <div className="overview-item">
-                <div className="overview-value" style={{ color: '#818cf8' }}>
-                  {historyData.length}
+        {/* 设置按钮 */}
+        <Button
+          type="primary"
+          shape="circle"
+          icon={<SettingOutlined />}
+          className="clickable"
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            right: 24,
+            width: 44,
+            height: 44,
+            zIndex: 50,
+          }}
+          onClick={() => setShowSettings(true)}
+        />
+
+        {/* 设置面板 */}
+        <Drawer
+          title="设置"
+          placement="right"
+          width={320}
+          onClose={() => setShowSettings(false)}
+          open={showSettings}
+          className="clickable"
+        >
+          {settings && (
+            <Space direction="vertical" size={20} style={{ width: '100%' }}>
+              <div>
+                <Text type="secondary" style={{ fontSize: 13 }}>通知提醒</Text>
+                <div style={{ marginTop: 8 }}>
+                  <Switch
+                    checked={settings.notificationsEnabled}
+                    onChange={(v) => updateSettings('notificationsEnabled', v)}
+                  />
                 </div>
-                <div className="overview-label">记录数</div>
               </div>
-              <div className="overview-item">
-                <div className="overview-value" style={{ color: '#10B981' }}>
-                  {todayStats?.averageScore || 0}
-                </div>
-                <div className="overview-label">平均分</div>
+
+              <div>
+                <Text type="secondary" style={{ fontSize: 13 }}>休息提醒间隔 (分钟)</Text>
+                <InputNumber
+                  value={settings.breakReminderInterval}
+                  onChange={(v) => updateSettings('breakReminderInterval', v || 60)}
+                  min={15} max={180}
+                  style={{ width: '100%', marginTop: 8 }}
+                />
               </div>
-              <div className="overview-item">
-                <div className="overview-value" style={{ color: '#fbbf24' }}>
-                  {totalTime > 0 ? formatMinutes(totalTime) : '0分钟'}
-                </div>
-                <div className="overview-label">总计时长</div>
+
+              <div>
+                <Text type="secondary" style={{ fontSize: 13 }}>疲劳检测阈值 (分钟)</Text>
+                <InputNumber
+                  value={settings.fatigueThreshold}
+                  onChange={(v) => updateSettings('fatigueThreshold', v || 30)}
+                  min={10} max={60}
+                  style={{ width: '100%', marginTop: 8 }}
+                />
               </div>
-              <div className="overview-item">
-                <div className="overview-value" style={{ color: '#10B981' }}>
-                  {totalTime > 0 ? `${Math.round((todayStats!.totalFocusedTime / totalTime) * 100)}%` : '0%'}
-                </div>
-                <div className="overview-label">专注率</div>
+
+              <div>
+                <Text type="secondary" style={{ fontSize: 13 }}>卡住检测阈值 (分钟)</Text>
+                <InputNumber
+                  value={settings.stuckThreshold}
+                  onChange={(v) => updateSettings('stuckThreshold', v || 15)}
+                  min={5} max={30}
+                  style={{ width: '100%', marginTop: 8 }}
+                />
               </div>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* 设置按钮 */}
-      <button className="settings-btn clickable" onClick={() => setShowSettings(true)}>
-        ⚙️
-      </button>
-
-      {/* 设置面板 */}
-      <div className={`settings-panel ${showSettings ? 'open' : ''}`}>
-        <div className="settings-header">
-          <h2>设置</h2>
-          <button className="close-btn clickable" onClick={() => setShowSettings(false)}>
-            ×
-          </button>
-        </div>
-
-        {settings && (
-          <div className="settings-content">
-            <div className="setting-item">
-              <label>通知提醒</label>
-              <div
-                className={`toggle-switch clickable ${settings.notificationsEnabled ? 'active' : ''}`}
-                onClick={() => updateSettings('notificationsEnabled', !settings.notificationsEnabled)}
-              />
-            </div>
-
-            <div className="setting-item">
-              <label>休息提醒间隔 (分钟)</label>
-              <input
-                type="number"
-                className="setting-input clickable"
-                value={settings.breakReminderInterval}
-                onChange={(e) => updateSettings('breakReminderInterval', parseInt(e.target.value) || 60)}
-                min={15}
-                max={180}
-              />
-            </div>
-
-            <div className="setting-item">
-              <label>疲劳检测阈值 (分钟)</label>
-              <input
-                type="number"
-                className="setting-input clickable"
-                value={settings.fatigueThreshold}
-                onChange={(e) => updateSettings('fatigueThreshold', parseInt(e.target.value) || 30)}
-                min={10}
-                max={60}
-              />
-            </div>
-
-            <div className="setting-item">
-              <label>卡住检测阈值 (分钟)</label>
-              <input
-                type="number"
-                className="setting-input clickable"
-                value={settings.stuckThreshold}
-                onChange={(e) => updateSettings('stuckThreshold', parseInt(e.target.value) || 15)}
-                min={5}
-                max={30}
-              />
-            </div>
-
-            <div className="setting-item" style={{ marginTop: 32 }}>
-              <button
-                className="clickable"
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-                  border: 'none',
-                  borderRadius: 8,
-                  color: 'white',
-                  fontSize: 14,
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
+              <Button
+                type="primary"
+                block
                 onClick={async () => {
                   await window.electronAPI.resetWorkTimer()
                   setShowSettings(false)
                 }}
               >
                 重置工作计时
-              </button>
-            </div>
+              </Button>
 
-            <div style={{ marginTop: 24, padding: 16, background: 'rgba(255,255,255,0.03)', borderRadius: 12 }}>
-              <p style={{ fontSize: 12, color: '#6b6b80', lineHeight: 1.6 }}>
-                DevMood 通过分析您的键盘和鼠标行为，智能识别您的工作状态。所有数据均在本地处理，保护您的隐私。
-              </p>
-            </div>
-          </div>
-        )}
+              {/* 权限状态 */}
+              <Card size="small" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                <Space>
+                  {permissionGranted
+                    ? <CheckCircleOutlined style={{ color: '#10B981' }} />
+                    : <ExclamationCircleOutlined style={{ color: '#f87171' }} />
+                  }
+                  <Text style={{ fontSize: 13 }}>
+                    {permissionGranted ? '输入监控已激活' : '输入监控未激活'}
+                  </Text>
+                </Space>
+              </Card>
+
+              <Paragraph type="secondary" style={{ fontSize: 12, lineHeight: 1.6 }}>
+                DevMood 通过分析您的键盘和鼠标行为，智能识别工作状态。所有数据均在本地处理，保护隐私。
+              </Paragraph>
+            </Space>
+          )}
+        </Drawer>
       </div>
-    </div>
+    </ConfigProvider>
   )
 }
 

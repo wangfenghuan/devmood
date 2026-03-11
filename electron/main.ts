@@ -79,7 +79,11 @@ function createTray(): void {
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAdgAAAHYBTnsmCAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAErSURBVDiNpZMxSwNBEIW/TbyQxIA0sVHwAC0sTOzJBNvGxkLwBjqJgv4F/gFfYmHhY2/gAE1sTKx8ATewsLEw8Ao2LgYWdhY2/gGxsQUXwSYWdjYWFrYHBms7MrO7sJAOByTzExmhnNzO/+b+7MwGmDVAQ2hHcDwFFABnBlwCVgEdoR3AcASYAm4DHakBdgE/AQu9IOZDm4D9gNPoB3BZ4Z9gGfAhcB8oMcD9GwFXgKPAX+AT8DFQP0j7ALgC9IcYuAOfAJ+BFuB6jP0nM/cCy4CR4L4HLgMNgQVgYJi5BrgODANXgT3g+RC4BMz0ALsAXOh9FNgAnuwGWAUmpu8C6wXwDjAIGJguI/C62gP8CiYmUJuAN8BrYFVg/RGAaeB8M/AFuAI8SwCXmT1gOfBKKHsAtoC7wFZgL5D9gREI3IeAd8BGYFZi+RIwC9wE9gPfArUlcBL4BjyE5iPwHXhP0v8B/C04l4tMPY4AAAAASUVORK5CYII='
   )
 
+  // macOS 需要设置为 template 图片才能自动适配深浅菜单栏
+  icon.setTemplateImage(true)
+
   tray = new Tray(icon)
+  tray.setTitle('DM')
   updateTrayMenu()
 
   tray.on('double-click', () => {
@@ -389,8 +393,16 @@ ipcMain.handle('reset-work-timer', () => {
   stateAnalyzer?.resetWorkTimer()
 })
 
+ipcMain.handle('get-permission-status', () => {
+  return {
+    granted: inputMonitorStarted,
+    platform: process.platform
+  }
+})
+
 // 应用生命周期
 app.whenReady().then(() => {
+  app.name = 'DevMood'
   createWindow()
   createTray()
   initializeComponents()

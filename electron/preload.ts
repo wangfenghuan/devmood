@@ -39,13 +39,18 @@ const electronAPI = {
     return ipcRenderer.invoke('reset-work-timer')
   },
 
+  // 获取权限状态
+  getPermissionStatus: (): Promise<{ granted: boolean; platform: string }> => {
+    return ipcRenderer.invoke('get-permission-status')
+  },
+
   // 监听状态更新
   onStatusUpdate: (callback: (status: CurrentStatus) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, status: CurrentStatus) => {
       callback(status)
     }
     ipcRenderer.on('status-update', listener)
-    
+
     // 返回取消订阅函数
     return () => {
       ipcRenderer.removeListener('status-update', listener)

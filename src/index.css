@@ -42,7 +42,6 @@ body {
   background: var(--bg-primary);
   color: var(--text-primary);
   min-height: 100vh;
-  -webkit-app-region: drag;
   overflow-x: hidden;
 }
 
@@ -88,6 +87,8 @@ select,
   text-align: center;
   margin-bottom: 28px;
   position: relative;
+  -webkit-app-region: drag;
+  padding-top: 8px;
 }
 
 .header h1 {

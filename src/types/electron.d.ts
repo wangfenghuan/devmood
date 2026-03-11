@@ -13,6 +13,7 @@ export interface ElectronAPI {
     averageScore: number
   } | null>
   resetWorkTimer: () => Promise<void>
+  getPermissionStatus: () => Promise<{ granted: boolean; platform: string }>
   onStatusUpdate: (callback: (status: CurrentStatus) => void) => () => void
 }
 
@@ -22,4 +23,4 @@ declare global {
   }
 }
 
-export {}
+export { }
