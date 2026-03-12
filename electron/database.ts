@@ -117,18 +117,19 @@ class AppDatabase {
         // 迁移历史记录
         if (data.history && Array.isArray(data.history) && this.db) {
           const stmt = this.db.prepare(`
-            INSERT INTO history (timestamp, state, score, confidence, indicators)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO history (timestamp, state, score, confidence, indicators, activeWindow)
+            VALUES (?, ?, ?, ?, ?, ?)
           `)
 
           this.db.run('BEGIN TRANSACTION;')
           for (const item of data.history) {
             stmt.run([
-              item.timestamp,
-              item.state,
-              item.score,
-              item.confidence,
-              JSON.stringify(item.indicators || [])
+              item.timestamp || Date.now(),
+              item.state || 'normal',
+              item.score || 0,
+              item.confidence || 0,
+              JSON.stringify(item.indicators || []),
+              item.activeWindow || ''
             ])
           }
           this.db.run('COMMIT;')
