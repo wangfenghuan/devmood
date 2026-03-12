@@ -40,6 +40,11 @@ const electronAPI = {
     return ipcRenderer.invoke('reset-work-timer')
   },
 
+  // 清空历史记录
+  clearHistory: (): Promise<void> => {
+    return ipcRenderer.invoke('clear-history')
+  },
+
   // 获取权限状态
   getPermissionStatus: (): Promise<{ granted: boolean; platform: string }> => {
     return ipcRenderer.invoke('get-permission-status')

@@ -1,5 +1,5 @@
-import { Typography, Switch, InputNumber, Button, Space, Drawer, Card } from 'antd'
-import { CheckCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
+import { Typography, Switch, InputNumber, Button, Space, Drawer, Card, Modal, message } from 'antd'
+import { CheckCircleOutlined, ExclamationCircleOutlined, DeleteOutlined } from '@ant-design/icons'
 import { AppSettings } from '../types'
 
 const { Text, Paragraph } = Typography
@@ -146,16 +146,48 @@ export default function SettingsDrawer({
             </Space>
           </Card>
 
-          <Button
-            type="primary"
-            block
-            onClick={async () => {
-              await window.electronAPI.resetWorkTimer()
-              setShowSettings(false)
-            }}
-          >
-            重置工作计时
-          </Button>
+          <Card size="small" style={{ background: 'rgba(255,255,255,0.02)', borderColor: '#434343' }}>
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Button
+                block
+                onClick={async () => {
+                  Modal.confirm({
+                    title: '重置工作计时',
+                    content: '这将会把今天连续工作的时间归零，确定要继续吗？',
+                    onOk: async () => {
+                      await window.electronAPI.resetWorkTimer()
+                      setShowSettings(false)
+                      message.success('工作计时已重置')
+                    }
+                  })
+                }}
+              >
+                重置今日工作计时
+              </Button>
+
+              <Button
+                danger
+                block
+                icon={<DeleteOutlined />}
+                onClick={async () => {
+                  Modal.confirm({
+                    title: '清空历史记录',
+                    content: '确定要清空所有记录的状态分析历史吗？此操作不可逆！(当前的设置配置会被保留)',
+                    okText: '确认清空',
+                    okType: 'danger',
+                    cancelText: '取消',
+                    onOk: async () => {
+                      await window.electronAPI.clearHistory()
+                      setShowSettings(false)
+                      message.success('历史记录已清空')
+                    }
+                  })
+                }}
+              >
+                清空数据与历史记录
+              </Button>
+            </Space>
+          </Card>
 
           {/* 权限状态 */}
           <Card size="small" style={{ background: 'rgba(255,255,255,0.02)' }}>

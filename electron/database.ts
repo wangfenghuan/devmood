@@ -201,6 +201,18 @@ class AppDatabase {
     }
   }
 
+  async clearHistory(): Promise<void> {
+    await this.init()
+    if (!this.db) return
+
+    try {
+      this.db.run('DELETE FROM history;')
+      this.saveDb()
+    } catch (err) {
+      console.error('[Database] Failed to clear history:', err)
+    }
+  }
+
   async getTodayStats() {
     const today = new Date()
     today.setHours(0, 0, 0, 0)

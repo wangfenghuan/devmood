@@ -42,10 +42,10 @@ let lastNotificationTime: Record<string, number> = {}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 420,
-    height: 680,
-    minWidth: 380,
-    minHeight: 600,
+    width: 800,
+    height: 600,
+    minWidth: 600,
+    minHeight: 500,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -430,6 +430,14 @@ ipcMain.handle('get-today-stats', async () => {
 
 ipcMain.handle('reset-work-timer', () => {
   stateAnalyzer?.resetWorkTimer()
+})
+
+ipcMain.handle('clear-history', async () => {
+  if (database) {
+    await database.clearHistory()
+    // 同时也重置分析器的内部缓存，以防数据不一致
+    stateAnalyzer?.resetWorkTimer()
+  }
 })
 
 ipcMain.handle('get-permission-status', () => {
