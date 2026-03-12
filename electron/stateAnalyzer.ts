@@ -21,15 +21,21 @@ class StateAnalyzer {
   // ML 分析器
   private mlAnalyzer: MLAnalyzer
 
-  // 默认设置
   private settings: AppSettings = {
     notificationsEnabled: true,
     fatigueThreshold: 30,
     stuckThreshold: 15,
     frustrationThreshold: 0.7,
+    slackingThreshold: 15,
+    focusedThreshold: 60,
     breakReminderInterval: 60,
     workingHoursStart: 9,
-    workingHoursEnd: 18
+    workingHoursEnd: 18,
+    aiEnabled: false,
+    aiBaseUrl: 'https://api.openai.com/v1',
+    aiApiKey: '',
+    aiModel: 'gpt-4o-mini',
+    aiPromptTemplate: '你是一个幽默且毒舌的资深程序员外包监工。用一句话吐槽或鼓励当前这名开发者，语言要求简短、一针见血（字数不超过20字，禁止使用标点符号排比，直接给出回复句子本身无需前缀）。\n当前他的状态是：{state}\n他目前使用的软件是：{activeWindow}\n他已经持续这个状态 {duration} 分钟了。'
   }
 
   private workStartTime: number = Date.now()
@@ -108,7 +114,7 @@ class StateAnalyzer {
     const confidence = this.calculateConfidence(metrics)
 
     // 计算持续时间
-    const { fatigueDuration, stuckDuration } = this.calculateDurations()
+    const durations = this.calculateDurations()
 
     // 计算烦躁程度
     const frustrationLevel = this.calculateFrustrationLevel(metrics)
@@ -129,8 +135,10 @@ class StateAnalyzer {
       state,
       score,
       confidence,
-      fatigueDuration,
-      stuckDuration,
+      fatigueDuration: durations.fatigueDuration,
+      stuckDuration: durations.stuckDuration,
+      slackingDuration: durations.slackingDuration,
+      focusedDuration: durations.focusedDuration,
       frustrationLevel,
       continuousWorkTime,
       indicators
@@ -320,25 +328,33 @@ class StateAnalyzer {
     return Math.round((dataConfidence * 0.5 + consistency * 0.5) * 100) / 100
   }
 
-  // 计算持续时间
-  private calculateDurations(): { fatigueDuration: number; stuckDuration: number } {
+  // 计算连续状态持续时间
+  private calculateDurations(): { fatigueDuration: number; stuckDuration: number; slackingDuration: number; focusedDuration: number } {
     let fatigueDuration = 0
     let stuckDuration = 0
+    let slackingDuration = 0
+    let focusedDuration = 0
 
-    // 从最近的记录开始，计算连续状态持续时间
+    // 从最近的记录开始回溯，由于是从数组末尾向前遍历，必须用相同的状态累加
     for (let i = this.stateHistory.length - 1; i >= 0; i--) {
       const record = this.stateHistory[i]
 
+      // 每条记录的时间间隔约 10 秒
       if (record.state === 'fatigued') {
-        fatigueDuration += 10 * 1000 // 每条记录约10秒
+        fatigueDuration += 10 * 1000
       } else if (record.state === 'stuck') {
         stuckDuration += 10 * 1000
+      } else if (record.state === 'slacking') {
+        slackingDuration += 10 * 1000
+      } else if (record.state === 'focused') {
+        focusedDuration += 10 * 1000
       } else {
+        // 如果遇到了不同状态的快照，直接中断累加，因为“连续性”被打破了
         break
       }
     }
 
-    return { fatigueDuration, stuckDuration }
+    return { fatigueDuration, stuckDuration, slackingDuration, focusedDuration }
   }
 
   // 计算烦躁程度

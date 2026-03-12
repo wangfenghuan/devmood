@@ -22,6 +22,8 @@ export interface StateAnalysis {
   confidence: number          // 置信度 0-1
   fatigueDuration: number     // 疲劳持续时间
   stuckDuration: number       // 卡住持续时间
+  slackingDuration: number    // 摸鱼持续时间
+  focusedDuration: number     // 专注持续时间
   frustrationLevel: number    // 烦躁程度 0-1
   continuousWorkTime: number  // 连续工作时间
   indicators: string[]        // 状态指标说明
@@ -57,9 +59,16 @@ export interface AppSettings {
   fatigueThreshold: number      // 疲劳检测阈值
   stuckThreshold: number        // 卡住检测阈值
   frustrationThreshold: number  // 烦躁检测阈值
+  slackingThreshold: number     // 摸鱼检测阈值
+  focusedThreshold: number      // 专注检测阈值
   breakReminderInterval: number // 休息提醒间隔 (分钟)
   workingHoursStart: number     // 工作时间开始 (小时)
   workingHoursEnd: number       // 工作时间结束 (小时)
+  aiEnabled: boolean            // 开启 AI 智能提醒
+  aiBaseUrl: string             // AI Base URL
+  aiApiKey: string              // AI API Key
+  aiModel: string               // AI 模型名称
+  aiPromptTemplate: string      // AI 自定义人设提示词
 }
 
 // IPC 通道类型

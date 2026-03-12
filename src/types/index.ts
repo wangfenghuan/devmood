@@ -51,12 +51,19 @@ export interface StatusSnapshot {
 // 设置
 export interface AppSettings {
   notificationsEnabled: boolean
-  fatigueThreshold: number
-  stuckThreshold: number
-  frustrationThreshold: number
-  breakReminderInterval: number
+  fatigueThreshold: number      // 疲劳检测阈值
+  stuckThreshold: number        // 卡住检测阈值
+  frustrationThreshold: number  // 烦躁检测阈值
+  slackingThreshold: number     // 摸鱼检测阈值
+  focusedThreshold: number      // 专注检测阈值
+  breakReminderInterval: number // 休息提醒间隔 (分钟)
   workingHoursStart: number
   workingHoursEnd: number
+  aiEnabled: boolean            // 开启 AI 智能提醒
+  aiBaseUrl: string             // AI Base URL
+  aiApiKey: string              // AI API Key
+  aiModel: string               // AI 模型名称
+  aiPromptTemplate: string      // AI 自定义人设提示词
 }
 
 // 状态标签映射

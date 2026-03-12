@@ -66,6 +66,86 @@ export default function SettingsDrawer({
             />
           </div>
 
+          <div>
+            <Text type="secondary" style={{ fontSize: 13 }}>摸鱼检测阈值 (分钟)</Text>
+            <InputNumber
+              value={settings.slackingThreshold}
+              onChange={(v) => updateSettings('slackingThreshold', v || 15)}
+              min={1} max={60}
+              style={{ width: '100%', marginTop: 8 }}
+            />
+          </div>
+
+          <div>
+            <Text type="secondary" style={{ fontSize: 13 }}>专注里程碑提醒 (分钟)</Text>
+            <InputNumber
+              value={settings.focusedThreshold}
+              onChange={(v) => updateSettings('focusedThreshold', v || 60)}
+              min={10} max={180}
+              style={{ width: '100%', marginTop: 8 }}
+            />
+          </div>
+
+          <Card size="small" title={<Text style={{ fontSize: 14 }}>🤖 AI 智能提醒辅助</Text>} style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'rgba(255,255,255,0.1)' }}>
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text type="secondary" style={{ fontSize: 13 }}>启用大模型生成文案</Text>
+                <Switch
+                  checked={settings.aiEnabled}
+                  onChange={(v) => updateSettings('aiEnabled', v)}
+                />
+              </div>
+              
+              {settings.aiEnabled && (
+                <>
+                  <div style={{ marginTop: 8 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>API Base URL (OpenAI 兼容)</Text>
+                    <input
+                      type="text"
+                      value={settings.aiBaseUrl}
+                      onChange={(e) => updateSettings('aiBaseUrl', e.target.value)}
+                      placeholder="https://api.openai.com/v1"
+                      style={{ width: '100%', marginTop: 4, padding: '4px 8px', background: 'rgba(0,0,0,0.2)', border: '1px solid #434343', color: '#fff', borderRadius: 4 }}
+                    />
+                  </div>
+                  
+                  <div style={{ marginTop: 8 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>API Key</Text>
+                    <input
+                      type="password"
+                      value={settings.aiApiKey}
+                      onChange={(e) => updateSettings('aiApiKey', e.target.value)}
+                      placeholder="sk-..."
+                      style={{ width: '100%', marginTop: 4, padding: '4px 8px', background: 'rgba(0,0,0,0.2)', border: '1px solid #434343', color: '#fff', borderRadius: 4 }}
+                    />
+                  </div>
+
+                  <div style={{ marginTop: 8 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>Model 模型名称</Text>
+                    <input
+                      type="text"
+                      value={settings.aiModel}
+                      onChange={(e) => updateSettings('aiModel', e.target.value)}
+                      placeholder="gpt-4o-mini"
+                      style={{ width: '100%', marginTop: 4, padding: '4px 8px', background: 'rgba(0,0,0,0.2)', border: '1px solid #434343', color: '#fff', borderRadius: 4 }}
+                    />
+                  </div>
+
+                  <div style={{ marginTop: 8 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>AI 人设 / 提示词词云</Text>
+                    <textarea
+                      value={settings.aiPromptTemplate}
+                      onChange={(e) => updateSettings('aiPromptTemplate', e.target.value)}
+                      placeholder="可用变量: {state}, {activeWindow}, {duration}"
+                      rows={4}
+                      style={{ width: '100%', marginTop: 4, padding: '4px 8px', background: 'rgba(0,0,0,0.2)', border: '1px solid #434343', color: '#fff', borderRadius: 4, resize: 'vertical' }}
+                    />
+                  </div>
+                </>
+              )}
+            </Space>
+          </Card>
+
           <Button
             type="primary"
             block

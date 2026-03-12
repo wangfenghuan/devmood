@@ -4,6 +4,7 @@ import { uIOhook } from 'uiohook-napi'
 import ActivityMonitor from './activityMonitor'
 import StateAnalyzer from './stateAnalyzer'
 import AppDatabase from './database'
+import { AIService } from './aiService' // Added AIService import
 import { CurrentStatus, StatusSnapshot, AppSettings, STATE_LABELS, ActivityData } from './types'
 
 // 使用全局变量跟踪退出状态
@@ -15,6 +16,7 @@ let tray: Tray | null = null
 let activityMonitor: ActivityMonitor | null = null
 let stateAnalyzer: StateAnalyzer | null = null
 let database: typeof AppDatabase | null = null
+const aiService = new AIService()
 
 // 当前状态
 let currentStatus: CurrentStatus = {
@@ -306,11 +308,33 @@ async function checkNotifications(analysis: CurrentStatus['analysis']): Promise<
 
   const now = Date.now()
   const minInterval = 5 * 60 * 1000 // 最小通知间隔 5分钟
+  
+  // 专注里程碑提醒 (连续1小时专注)
+  if (analysis.state === 'focused' && analysis.focusedDuration > 60 * 60 * 1000) {
+    if (!lastNotificationTime['focused'] || now - lastNotificationTime['focused'] > minInterval * 2) {
+      const fallback = '您已经连续专注高效工作 1 小时了，继续保持出色的状态！'
+      const aiMessage = await aiService.generateNotification(settings, '专注', analysis.indicators.join(','), 60)
+      showNotification('🎯 完美的心流状态！', aiMessage || fallback)
+      lastNotificationTime['focused'] = now
+    }
+  }
+
+  // 摸鱼打断提醒 (连续摸鱼超过15分钟)
+  if (analysis.state === 'slacking' && analysis.slackingDuration > 15 * 60 * 1000) {
+    if (!lastNotificationTime['slacking'] || now - lastNotificationTime['slacking'] > minInterval) {
+      const fallback = '也许现在是时候回到代码的世界里了~'
+      const aiMessage = await aiService.generateNotification(settings, '摸鱼', analysis.indicators.join(','), Math.floor(analysis.slackingDuration / 60000))
+      showNotification('☕ 咖啡喝够了吗？', aiMessage || fallback)
+      lastNotificationTime['slacking'] = now
+    }
+  }
 
   // 疲劳提醒
   if (analysis.state === 'fatigued' && analysis.fatigueDuration > 10 * 60 * 1000) {
     if (!lastNotificationTime['fatigue'] || now - lastNotificationTime['fatigue'] > minInterval) {
-      showNotification('您似乎有些疲劳了 💤', '建议休息一下，喝杯水或站起来活动活动')
+      const fallback = '建议休息一下，喝杯水或站起来活动活动'
+      const aiMessage = await aiService.generateNotification(settings, '疲劳', analysis.indicators.join(','), Math.floor(analysis.fatigueDuration / 60000))
+      showNotification('您似乎有些疲劳了 💤', aiMessage || fallback)
       lastNotificationTime['fatigue'] = now
     }
   }
@@ -318,7 +342,9 @@ async function checkNotifications(analysis: CurrentStatus['analysis']): Promise<
   // 卡住提醒
   if (analysis.state === 'stuck' && analysis.stuckDuration > 15 * 60 * 1000) {
     if (!lastNotificationTime['stuck'] || now - lastNotificationTime['stuck'] > minInterval) {
-      showNotification('检测到您可能遇到了困难 🤔', '休息一下或换个思路可能会有帮助')
+      const fallback = '休息一下或换个思路可能会有帮助'
+      const aiMessage = await aiService.generateNotification(settings, '卡住', analysis.indicators.join(','), Math.floor(analysis.stuckDuration / 60000))
+      showNotification('检测到您可能遇到了困难 🤔', aiMessage || fallback)
       lastNotificationTime['stuck'] = now
     }
   }
@@ -326,7 +352,9 @@ async function checkNotifications(analysis: CurrentStatus['analysis']): Promise<
   // 烦躁提醒
   if (analysis.state === 'frustrated' && analysis.frustrationLevel > 0.7) {
     if (!lastNotificationTime['frustrated'] || now - lastNotificationTime['frustrated'] > minInterval) {
-      showNotification('您看起来有些烦躁 😤', '深呼吸，也许该短暂休息一下了')
+      const fallback = '深呼吸，也许该短暂休息一下了'
+      const aiMessage = await aiService.generateNotification(settings, '烦躁', analysis.indicators.join(','), 10)
+      showNotification('您看起来有些烦躁 😤', aiMessage || fallback)
       lastNotificationTime['frustrated'] = now
     }
   }
@@ -334,7 +362,9 @@ async function checkNotifications(analysis: CurrentStatus['analysis']): Promise<
   // 长时间工作提醒
   if (analysis.continuousWorkTime > settings.breakReminderInterval * 60 * 1000) {
     if (!lastNotificationTime['break'] || now - lastNotificationTime['break'] > minInterval) {
-      showNotification('已连续工作较长时间 ⏰', '该休息一下了，保护眼睛和身体健康')
+      const fallback = '该休息一下了，保护眼睛和身体健康'
+      const aiMessage = await aiService.generateNotification(settings, '高强度工作时长告警', analysis.indicators.join(','), Math.floor(analysis.continuousWorkTime / 60000))
+      showNotification('已连续工作较长时间 ⏰', aiMessage || fallback)
       lastNotificationTime['break'] = now
     }
   }
@@ -345,8 +375,18 @@ function showNotification(title: string, body: string): void {
     const notification = new Notification({
       title,
       body,
-      silent: false
+      silent: false // 允许发出默认系统提示音
     })
+    
+    // 点击通知自动显示主窗口
+    notification.on('click', () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore()
+        mainWindow.show()
+        mainWindow.focus()
+      }
+    })
+    
     notification.show()
   }
 }

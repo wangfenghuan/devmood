@@ -16,9 +16,16 @@ class AppDatabase {
     fatigueThreshold: 30,
     stuckThreshold: 15,
     frustrationThreshold: 0.7,
+    slackingThreshold: 15,
+    focusedThreshold: 60,
     breakReminderInterval: 60,
     workingHoursStart: 9,
-    workingHoursEnd: 18
+    workingHoursEnd: 18,
+    aiEnabled: false,
+    aiBaseUrl: 'https://api.openai.com/v1',
+    aiApiKey: '',
+    aiModel: 'gpt-4o-mini',
+    aiPromptTemplate: '你是一个幽默且毒舌的资深程序员外包监工。用一句话吐槽或鼓励当前这名开发者，语言要求简短、一针见血（字数不超过20字，禁止使用标点符号排比，直接给出回复句子本身无需前缀）。\n当前他的状态是：{state}\n他目前使用的软件是：{activeWindow}\n他已经持续这个状态 {duration} 分钟了。'
   }
 
   // 缓存设置避免频繁查库
