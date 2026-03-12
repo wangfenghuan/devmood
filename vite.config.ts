@@ -7,6 +7,16 @@ export default defineConfig({
   base: './',
   build: {
     outDir: 'dist',
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom'],
+          'antd-vendor': ['antd', '@ant-design/icons'],
+          'recharts-vendor': ['recharts'],
+        },
+      },
+    },
   },
   server: {
     port: 5173,

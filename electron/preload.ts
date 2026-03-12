@@ -29,6 +29,7 @@ const electronAPI = {
     totalFatiguedTime: number
     totalStuckTime: number
     totalFrustratedTime: number
+    totalSlackingTime: number
     averageScore: number
   } | null> => {
     return ipcRenderer.invoke('get-today-stats')

@@ -178,6 +178,7 @@ class StateAnalyzer {
       idleRatio,
       activityVariance,
       typingRhythm,
+      activeWindow: data.activeWindow,
       currentTypingSpeed: data.typingSpeed,
       currentClickFrequency: data.clickFrequency,
       currentIdleTime: data.idleTime
@@ -188,46 +189,74 @@ class StateAnalyzer {
   private identifyState(metrics: ReturnType<typeof this.calculateMetrics>): DeveloperState {
     const {
       avgTypingSpeed, typingTrend, avgClickFrequency, clickTrend,
-      idleRatio, activityVariance, typingRhythm, currentIdleTime
+      idleRatio, activityVariance, typingRhythm, currentIdleTime, activeWindow
     } = metrics
+
+    const windowLower = (activeWindow || '').toLowerCase()
+    
+    // 应用分类
+    const isIDE = windowLower.includes('code') || windowLower.includes('intellij') || 
+                  windowLower.includes('webstorm') || windowLower.includes('cursor') || 
+                  windowLower.includes('xcode') || windowLower.includes('studio') || windowLower.includes('terminal') || windowLower.includes('iterm')
+                  
+    const isBrowser = windowLower.includes('chrome') || windowLower.includes('safari') || 
+                      windowLower.includes('edge') || windowLower.includes('firefox') || windowLower.includes('arc')
+                      
+    const isEntertainment = windowLower.includes('bilibili') || windowLower.includes('youtube') || 
+                            windowLower.includes('music') || windowLower.includes('netflix') || 
+                            windowLower.includes('tencent') || windowLower.includes('weibo') || windowLower.includes('twitter')
+
+    // 0. 特殊状态优先检测：如果在明确的娱乐软件中
+    if (isEntertainment) {
+       return 'slacking'
+    }
 
     // 1. 检测疲劳状态
     // 特征：打字速度下降、点击频率下降、空闲时间增加、打字节奏变慢
     if (
-      (avgTypingSpeed > 0 && avgTypingSpeed < 30 && typingTrend < -0.2) ||
+      (avgTypingSpeed > 0 && avgTypingSpeed < 30 && typingTrend < -0.2 && !isIDE) ||
       (idleRatio > 0.5 && typingTrend < -0.3) ||
       (currentIdleTime > 2 * 60 * 1000) // 空闲超过2分钟
     ) {
       return 'fatigued'
     }
 
-    // 2. 检测卡住状态
-    // 特征：低输入但非空闲、频繁切换活动、删除/重试模式
+    // 2. 检测摸鱼/浏览状态 (Slacking) 新增！
+    // 特征：非IDE环境下，打字极低，只有高点击和滚动（可能在看别人视频，或者摸鱼乱点）
     if (
-      (avgTypingSpeed < 20 && avgTypingSpeed > 0 && idleRatio < 0.3) ||
-      (typingTrend < -0.1 && clickTrend > 0.1) || // 打字减少但点击增加（可能在浏览文档）
-      (activityVariance > 100 && avgTypingSpeed < 50) // 活动不稳定且打字少
+      isBrowser && avgTypingSpeed < 10 && avgClickFrequency > 5 && activityVariance < 100
+    ) {
+      // 进一步通过 title 判断是不是在stackoverflow等学习网站
+      if (windowLower.includes('stackoverflow') || windowLower.includes('github') || windowLower.includes('docs') || windowLower.includes('gpt')) {
+        return 'stuck' // 在查资料
+      }
+      return 'slacking' // 纯冲浪
+    }
+
+    // 3. 检测卡住状态 (Stuck) 
+    // 特征：IDE中低输入但非空闲、频繁切换活动、删除/重试模式
+    if (
+      (isIDE && avgTypingSpeed < 20 && avgTypingSpeed > 0 && idleRatio < 0.3) ||
+      (typingTrend < -0.1 && clickTrend > 0.1) || // 打字减少但点击增加
+      (activityVariance > 100 && avgTypingSpeed < 50 && isIDE) // IDE中活动不稳定
     ) {
       return 'stuck'
     }
 
-    // 3. 检测烦躁状态
-    // 特征：高频率输入但节奏混乱、频繁点击、鼠标移动过快
+    // 4. 检测烦躁状态
+    // 特征：高频率点击，频繁切窗
     if (
       (avgClickFrequency > 40 && clickTrend > 0.3) ||
-      (activityVariance > 200 && avgTypingSpeed > 80) || // 活动非常不稳定
-      (typingRhythm < 0.3 && avgTypingSpeed > 60) // 打字快但节奏乱
+      (activityVariance > 200 && avgTypingSpeed > 80) || 
+      (typingRhythm < 0.3 && avgTypingSpeed > 60)
     ) {
       return 'frustrated'
     }
 
-    // 4. 检测专注状态
-    // 特征：稳定的中高速输入、稳定的节奏、低空闲时间
+    // 5. 检测专注状态
     if (
-      avgTypingSpeed > 60 &&
-      typingRhythm > 0.6 &&
-      idleRatio < 0.2 &&
-      typingTrend >= -0.1
+      (avgTypingSpeed > 50 && typingRhythm > 0.5 && idleRatio < 0.2) ||
+      (isIDE && avgTypingSpeed > 40 && typingTrend >= -0.1) // 只要在编辑器里并且维持平稳输入就视为专注
     ) {
       return 'focused'
     }
@@ -267,6 +296,11 @@ class StateAnalyzer {
       case 'frustrated':
         // 烦躁状态：较低分数
         score = 35
+        break
+
+      case 'slacking':
+        // 摸鱼状态：分数极低
+        score = 15
         break
     }
 
@@ -369,6 +403,14 @@ class StateAnalyzer {
           indicators.push('点击频率上升')
         }
         indicators.push('深呼吸，放松一下')
+        break
+        
+      case 'slacking':
+        if (metrics.activeWindow && metrics.activeWindow !== 'Unknown') {
+          // 只保留进程名
+          indicators.push(`当前应用：${metrics.activeWindow.split(' - ')[0]}`)
+        }
+        indicators.push('打字极少，似乎在冲浪')
         break
 
       case 'normal':

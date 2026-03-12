@@ -1,5 +1,5 @@
 // 开发者状态类型
-export type DeveloperState = 'focused' | 'fatigued' | 'stuck' | 'frustrated' | 'normal'
+export type DeveloperState = 'focused' | 'fatigued' | 'stuck' | 'frustrated' | 'normal' | 'slacking'
 
 // 活动数据类型
 export interface ActivityData {
@@ -65,7 +65,8 @@ export const STATE_LABELS: Record<DeveloperState, string> = {
   fatigued: '😴 疲劳',
   stuck: '🤔 卡住',
   frustrated: '😤 烦躁',
-  normal: '😐 正常'
+  normal: '😐 正常',
+  slacking: '☕ 摸鱼'
 }
 
 // 状态颜色映射
@@ -74,5 +75,6 @@ export const STATE_COLORS: Record<DeveloperState, string> = {
   fatigued: '#6366F1',
   stuck: '#F59E0B',
   frustrated: '#EF4444',
-  normal: '#6B7280'
+  normal: '#6B7280',
+  slacking: '#3B82F6'
 }

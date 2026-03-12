@@ -49,7 +49,6 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false
     },
-    titleBarStyle: 'hiddenInset',
     show: false,
     backgroundColor: '#1a1a2e'
   })

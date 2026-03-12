@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events'
+import { exec } from 'child_process'
 import { ActivityData } from './types'
 
 // 活动监控器 - 使用 Electron 的 powerMonitor 和模拟的输入监控
@@ -22,12 +23,14 @@ class ActivityMonitor extends EventEmitter {
   private idleThreshold: number = 30 * 1000 // 30秒无活动视为空闲
   private idleStartTime: number | null = null
 
-  // 当前活动窗口 (模拟)
-  private currentWindow: string = 'Unknown'
+  // 模拟活动窗口 - 配合 AppleScript
+  private currentWindowProcess: string = 'Unknown'
+  private currentWindowTitle: string = ''
 
   // 定时器
   private sampleTimer?: NodeJS.Timeout
   private reportTimer?: NodeJS.Timeout
+  private windowTimer?: NodeJS.Timeout
 
   constructor() {
     super()
@@ -50,6 +53,11 @@ class ActivityMonitor extends EventEmitter {
       this.report()
     }, 10 * 1000)
 
+    // 启动活跃应用获取器 (每2秒轮询 macOS 前台窗口)
+    this.windowTimer = setInterval(() => {
+      this.fetchActiveWindow()
+    }, 2000)
+
     console.log('Activity monitor started')
   }
 
@@ -67,6 +75,11 @@ class ActivityMonitor extends EventEmitter {
     if (this.reportTimer) {
       clearInterval(this.reportTimer)
       this.reportTimer = undefined
+    }
+
+    if (this.windowTimer) {
+      clearInterval(this.windowTimer)
+      this.windowTimer = undefined
     }
 
     console.log('Activity monitor stopped')
@@ -161,7 +174,7 @@ class ActivityMonitor extends EventEmitter {
       totalKeystrokes: this.keystrokes.length,
       totalMouseClicks: this.mouseClicks.length,
       totalMouseMoves: this.mouseMoves.length,
-      activeWindow: this.currentWindow,
+      activeWindow: this.currentWindowProcess ? `${this.currentWindowProcess} - ${this.currentWindowTitle}` : 'Unknown',
       timestamp: now
     }
 
@@ -219,6 +232,44 @@ class ActivityMonitor extends EventEmitter {
   recordIdle(idleTime: number): void {
     this.idleStartTime = Date.now() - idleTime
     this.lastActivityTime = Date.now() - idleTime
+  }
+
+  // 借助 macOS AppleScript 获取当前活跃的 App 及窗口标题
+  private fetchActiveWindow() {
+    if (process.platform !== 'darwin') return
+    
+    // AppleScript 获取带窗口焦点的、非隐藏的真实前台 App（过滤不可见的系统服务自身和包皮进程）
+    const script = `
+      global frontApp, frontAppName, windowTitle
+      set windowTitle to ""
+      tell application "System Events"
+        set frontApp to first application process whose frontmost is true
+        set frontAppName to name of frontApp
+        try
+          tell process frontAppName
+            set windowTitle to name of front window
+          end tell
+        end try
+      end tell
+      
+      -- 如果探测到自身 Electron 进程名字，但是没有实际标题或者是开发者工具，我们可能想返回 Unknown 让它过滤掉，
+      -- 或者直接返回当前运行的 DevMood
+      if frontAppName contains "Electron" then
+        set frontAppName to "DevMood"
+      end if
+      
+      return frontAppName & ":::" & windowTitle
+    `
+    
+    exec(`osascript -e '${script}'`, (error, stdout) => {
+      if (!error && stdout) {
+        const parts = stdout.trim().split(':::')
+        if (parts.length >= 1) {
+          this.currentWindowProcess = parts[0]
+          this.currentWindowTitle = parts[1] || ''
+        }
+      }
+    })
   }
 }
 

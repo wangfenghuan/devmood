@@ -13,14 +13,15 @@ interface TrainingSample {
 
 // 状态编码 (one-hot)
 const STATE_ENCODING: Record<DeveloperState, number[]> = {
-    focused: [1, 0, 0, 0, 0],
-    fatigued: [0, 1, 0, 0, 0],
-    stuck: [0, 0, 1, 0, 0],
-    frustrated: [0, 0, 0, 1, 0],
-    normal: [0, 0, 0, 0, 1]
+    focused: [1, 0, 0, 0, 0, 0],
+    fatigued: [0, 1, 0, 0, 0, 0],
+    stuck: [0, 0, 1, 0, 0, 0],
+    frustrated: [0, 0, 0, 1, 0, 0],
+    normal: [0, 0, 0, 0, 1, 0],
+    slacking: [0, 0, 0, 0, 0, 1]
 }
 
-const STATE_LIST: DeveloperState[] = ['focused', 'fatigued', 'stuck', 'frustrated', 'normal']
+const STATE_LIST: DeveloperState[] = ['focused', 'fatigued', 'stuck', 'frustrated', 'normal', 'slacking']
 
 // 特征归一化参数 (经验值，会随使用自适应)
 const FEATURE_RANGES = {
