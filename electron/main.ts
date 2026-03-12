@@ -179,12 +179,46 @@ function registerAndStartHook(): boolean {
 function startGlobalInputMonitor(): void {
   if (!activityMonitor) return
 
-  // macOS 需要辅助功能权限
+  // macOS 需要辅助功能权限和屏幕录制权限
   if (process.platform === 'darwin') {
+    const checkScreenRecordingPermissionAndStart = () => {
+      const status = systemPreferences.getMediaAccessStatus('screen')
+      if (status === 'granted') {
+        registerAndStartHook()
+        return
+      }
+
+      dialog.showMessageBox(mainWindow!, {
+        type: 'warning',
+        title: 'DevMood 需要屏幕录制权限',
+        message: '为了准确获取您当前正使用的软件名称 (解决 Unknown 问题)，需要「屏幕录制」权限。',
+        detail: '声明：我们绝对不会录制您的真实屏幕画面，该权限仅用于获取系统最上层的活跃窗口标题。\n\n打开设置后，请在列表中勾选 DevMood (或您的终端器)。',
+        buttons: ['打开系统设置', '忽略 (仍会显示Unknown)'],
+        defaultId: 0
+      }).then((result) => {
+        if (result.response === 0) {
+          shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture')
+          const screenTimer = setInterval(() => {
+            if (isQuitting) {
+              clearInterval(screenTimer)
+              return
+            }
+            if (systemPreferences.getMediaAccessStatus('screen') === 'granted') {
+              clearInterval(screenTimer)
+              console.log('Screen recording permission granted!')
+              registerAndStartHook()
+            }
+          }, 2000)
+        } else {
+          registerAndStartHook()
+        }
+      })
+    }
+
     const isTrusted = systemPreferences.isTrustedAccessibilityClient(false)
     console.log('[uiohook] Accessibility permission:', isTrusted)
     if (isTrusted) {
-      registerAndStartHook()
+      checkScreenRecordingPermissionAndStart()
       return
     }
 
@@ -212,7 +246,7 @@ function startGlobalInputMonitor(): void {
           if (granted) {
             clearInterval(permCheckTimer)
             console.log('Accessibility permission granted!')
-            registerAndStartHook()
+            checkScreenRecordingPermissionAndStart()
           }
         }, 2000)
       }
@@ -504,6 +538,9 @@ ipcMain.handle('get-permission-status', () => {
     platform: process.platform
   }
 })
+
+// 关闭硬件加速（消除 macOS 上的 shared_image_manager.cc 和 GPU mailbox 报错报警）
+app.disableHardwareAcceleration()
 
 // 应用生命周期
 app.whenReady().then(() => {
