@@ -12,6 +12,7 @@ export interface ElectronAPI {
     totalFrustratedTime: number
     totalSlackingTime: number
     averageScore: number
+    appUsage: { name: string; duration: number }[]
   } | null>
   getPeriodStats: (days: number) => Promise<{
     chartData: Array<{ time: string; score: number }>
@@ -23,9 +24,12 @@ export interface ElectronAPI {
       totalSlackingTime: number
       averageScore: number
     }
+    appUsage: { name: string; duration: number }[]
   } | null>
   resetWorkTimer: () => Promise<void>
   clearHistory: () => Promise<void>
+  exportData: () => Promise<{ success: boolean; canceled?: boolean; error?: string }>
+  importData: () => Promise<{ success: boolean; canceled?: boolean; error?: string }>
   getPermissionStatus: () => Promise<{ granted: boolean; platform: string }>
   onStatusUpdate: (callback: (status: CurrentStatus) => void) => () => void
 }

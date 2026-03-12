@@ -51,6 +51,7 @@ export interface StatusSnapshot {
   mouseSpeed?: number
   clickFrequency?: number
   idleTime?: number
+  activeWindow?: string
 }
 
 // 设置

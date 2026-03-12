@@ -66,9 +66,25 @@ class AppDatabase {
             state TEXT NOT NULL,
             score INTEGER NOT NULL,
             confidence REAL NOT NULL,
-            indicators TEXT NOT NULL
+            indicators TEXT NOT NULL,
+            activeWindow TEXT DEFAULT ''
           );
         `)
+
+        // 尝试自动执行结构迁移：如果 history 表没有 activeWindow 列，则补充
+        try {
+          const tableInfo = this.db.exec("PRAGMA table_info(history)")
+          if (tableInfo.length > 0 && tableInfo[0].values) {
+            const hasActiveWindow = tableInfo[0].values.some((col: any) => col[1] === 'activeWindow')
+            if (!hasActiveWindow) {
+              this.db.run("ALTER TABLE history ADD COLUMN activeWindow TEXT DEFAULT ''")
+              this.saveDb()
+              console.log('[Database] Migrated schema: added activeWindow column to history table')
+            }
+          }
+        } catch (e) {
+          console.error('[Database] Schema migration error:', e)
+        }
 
         this.db.run(`
           CREATE TABLE IF NOT EXISTS settings (
@@ -151,14 +167,15 @@ class AppDatabase {
 
     try {
       this.db.run(`
-        INSERT INTO history (timestamp, state, score, confidence, indicators)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO history (timestamp, state, score, confidence, indicators, activeWindow)
+        VALUES (?, ?, ?, ?, ?, ?)
       `, [
         snapshot.timestamp,
         snapshot.state,
         snapshot.score,
         snapshot.confidence,
-        JSON.stringify(snapshot.indicators)
+        JSON.stringify(snapshot.indicators),
+        snapshot.activeWindow || ''
       ])
 
       // 每保存 10 条历史或立即写入磁盘（取决于性能考量，此处为简单实现立即保存）
@@ -189,7 +206,8 @@ class AppDatabase {
           state: row.state as StatusSnapshot['state'],
           score: row.score as number,
           confidence: row.confidence as number,
-          indicators: JSON.parse(row.indicators as string)
+          indicators: JSON.parse(row.indicators as string),
+          activeWindow: row.activeWindow as string
         })
       }
 
@@ -229,6 +247,7 @@ class AppDatabase {
     let totalFrustratedTime = 0
     let totalSlackingTime = 0
     let totalScore = 0
+    const appUsage: Record<string, number> = {}
 
     // 这里采用与之前同样的估算逻辑：每条记录代表 10 秒
     const timePerRecord = 10 * 1000
@@ -241,9 +260,22 @@ class AppDatabase {
       else if (record.state === 'slacking') totalSlackingTime += timePerRecord
 
       totalScore += record.score
+
+      if (record.activeWindow && record.activeWindow !== 'Unknown') {
+        let appName = record.activeWindow
+        if (appName.includes(' - ')) {
+          appName = appName.split(' - ')[0]
+        }
+        appUsage[appName] = (appUsage[appName] || 0) + timePerRecord
+      }
     }
 
     const averageScore = history.length > 0 ? Math.round(totalScore / history.length) : 0
+
+    const appUsageArray = Object.entries(appUsage)
+      .map(([name, duration]) => ({ name, duration: Math.ceil(duration / 60000) }))
+      .filter(app => app.duration > 0)
+      .sort((a, b) => b.duration - a.duration)
 
     return {
       totalFocusedTime: Math.round(totalFocusedTime / 60000), // 转换为分钟
@@ -251,7 +283,8 @@ class AppDatabase {
       totalStuckTime: Math.round(totalStuckTime / 60000),
       totalFrustratedTime: Math.round(totalFrustratedTime / 60000),
       totalSlackingTime: Math.round(totalSlackingTime / 60000),
-      averageScore
+      averageScore,
+      appUsage: appUsageArray
     }
   }
 
@@ -421,7 +454,8 @@ class AppDatabase {
           state: row.state,
           score: row.score,
           confidence: row.confidence,
-          indicators: JSON.parse(row.indicators as string)
+          indicators: JSON.parse(row.indicators as string),
+          activeWindow: row.activeWindow
         })
       }
       historyStmt.free()
@@ -456,8 +490,8 @@ class AppDatabase {
       
       // 导入历史记录
       const historyStmt = this.db.prepare(`
-        INSERT INTO history (timestamp, state, score, confidence, indicators) 
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO history (timestamp, state, score, confidence, indicators, activeWindow) 
+        VALUES (?, ?, ?, ?, ?, ?)
       `)
       
       for (const record of data.history) {
@@ -466,7 +500,8 @@ class AppDatabase {
           record.state,
           record.score,
           record.confidence,
-          JSON.stringify(record.indicators || {})
+          JSON.stringify(record.indicators || {}),
+          record.activeWindow || ''
         ])
       }
       historyStmt.free()

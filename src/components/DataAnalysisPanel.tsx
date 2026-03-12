@@ -1,6 +1,6 @@
-import { Card, Typography, Space, Row, Col, Statistic, Segmented } from 'antd'
+import { Card, Typography, Space, Row, Col, Statistic, Segmented, List, Progress } from 'antd'
 import {
-  LineChartOutlined, PieChartOutlined, AppstoreOutlined
+  LineChartOutlined, PieChartOutlined, AppstoreOutlined, ProfileOutlined
 } from '@ant-design/icons'
 import { AreaChart, Area, XAxis, YAxis, Tooltip as ReTooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { formatMinutes } from './RealTimePanel'
@@ -40,6 +40,7 @@ interface DataAnalysisPanelProps {
     totalFrustratedTime: number
     totalSlackingTime: number
     averageScore: number
+    appUsage?: { name: string; duration: number }[]
   } | null
   totalTime: number
   timeRange: '今日' | '近7天' | '近30天'
@@ -152,6 +153,48 @@ export default function DataAnalysisPanel({
           ))}
         </Row>
       </Card>
+
+      {/* 软件使用时间排行榜 */}
+      {(todayStats?.appUsage && todayStats.appUsage.length > 0) && (
+        <Card title={
+          <Space size={8}>
+            <ProfileOutlined style={{ color: '#6366f1' }} />
+            <span>软件使用排行榜</span>
+          </Space>
+        } size="small" style={{ marginTop: 12 }}>
+          <List
+            size="small"
+            dataSource={todayStats.appUsage.slice(0, 8)} // 限制最多展示前8名
+            renderItem={(item, index) => {
+              // 计算进度条百分比，基于第一名
+              const maxDuration = todayStats.appUsage![0].duration
+              const percent = Math.round((item.duration / maxDuration) * 100)
+
+              return (
+                <List.Item style={{ padding: '8px 0', border: 'none' }}>
+                  <div style={{ width: '100%' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }}>
+                        <Text type="secondary" style={{ marginRight: 8, fontSize: 12 }}>{index + 1}.</Text>
+                        {item.name}
+                      </Text>
+                      <Text type="secondary" style={{ fontSize: 12 }}>{formatMinutes(item.duration)}</Text>
+                    </div>
+                    <Progress 
+                      percent={percent} 
+                      showInfo={false} 
+                      size="small" 
+                      strokeColor="rgba(99, 102, 241, 0.8)" 
+                      trailColor="rgba(255,255,255,0.05)"
+                      style={{ margin: 0 }}
+                    />
+                  </div>
+                </List.Item>
+              )
+            }}
+          />
+        </Card>
+      )}
     </div>
   )
 }
