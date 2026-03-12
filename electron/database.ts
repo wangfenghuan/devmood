@@ -307,6 +307,9 @@ class AppDatabase {
       count: number
       states: Record<string, number>
     }> = {}
+    
+    // 按应用的整体使用时长聚合
+    const appUsageOverall: Record<string, number> = {}
 
     // 初始化每天的空数据结构
     for (let i = 0; i < days; i++) {
@@ -340,6 +343,14 @@ class AppDatabase {
           dailyStats[dateStr].states[record.state] += timePerRecord
         }
       }
+
+      if (record.activeWindow && record.activeWindow !== 'Unknown') {
+        let appName = record.activeWindow
+        if (appName.includes(' - ')) {
+          appName = appName.split(' - ')[0]
+        }
+        appUsageOverall[appName] = (appUsageOverall[appName] || 0) + timePerRecord
+      }
     }
 
     // 格式化输出为图表所需结构
@@ -370,6 +381,11 @@ class AppDatabase {
 
     const averageScore = grandTotalCount > 0 ? Math.round(grandTotalScore / grandTotalCount) : 0
 
+    const appUsageArray = Object.entries(appUsageOverall)
+      .map(([name, duration]) => ({ name, duration: Math.ceil(duration / 60000) }))
+      .filter(app => app.duration > 0)
+      .sort((a, b) => b.duration - a.duration)
+
     return {
       chartData,
       stats: {
@@ -379,7 +395,8 @@ class AppDatabase {
         totalSlackingTime: Math.round(aggregateTime.totalSlackingTime / 60000),
         totalFrustratedTime: Math.round(aggregateTime.totalFrustratedTime / 60000),
         averageScore
-      }
+      },
+      appUsage: appUsageArray
     }
   }
 

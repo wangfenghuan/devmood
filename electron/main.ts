@@ -302,7 +302,8 @@ async function initializeComponents(): Promise<void> {
       typingSpeed: data.typingSpeed,
       mouseSpeed: data.mouseSpeed,
       clickFrequency: data.clickFrequency,
-      idleTime: data.idleTime
+      idleTime: data.idleTime,
+      activeWindow: data.activeWindow
     }
     database.saveHistory(snapshot)
 

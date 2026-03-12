@@ -25,6 +25,7 @@ function App() {
     totalFrustratedTime: number
     totalSlackingTime: number
     averageScore: number
+    appUsage?: { name: string; duration: number }[]
   } | null>(null)
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [showSettings, setShowSettings] = useState(false)
@@ -49,7 +50,10 @@ function App() {
         const days = timeRange === '近7天' ? 7 : 30
         const periodData = await window.electronAPI.getPeriodStats(days)
         if (periodData) {
-          setTodayStats(periodData.stats)
+          setTodayStats({
+            ...periodData.stats,
+            appUsage: periodData.appUsage
+          })
           setPeriodChartData(periodData.chartData)
         }
       }
