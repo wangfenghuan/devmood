@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  ConfigProvider, theme, Typography, Segmented, Alert, Steps, Button, Tooltip, Badge
+  ConfigProvider, theme, Typography, Alert, Steps, Button, Tooltip, Badge
 } from 'antd'
 import {
   SettingOutlined, SafetyOutlined, DashboardOutlined, BarChartOutlined
@@ -14,6 +14,7 @@ import SettingsDrawer from './components/SettingsDrawer'
 const { Title, Text } = Typography
 
 type TabType = '实时状态' | '数据分析'
+type TimeRangeType = '今日' | '近7天' | '近30天'
 
 function App() {
   const [status, setStatus] = useState<CurrentStatus | null>(null)
@@ -29,7 +30,9 @@ function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [activeTab, setActiveTab] = useState<TabType>('实时状态')
   const [historyData, setHistoryData] = useState<StatusSnapshot[]>([])
+  const [periodChartData, setPeriodChartData] = useState<Array<{ time: string; score: number }>>([])
   const [permissionGranted, setPermissionGranted] = useState<boolean | null>(null)
+  const [timeRange, setTimeRange] = useState<TimeRangeType>('今日')
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -39,10 +42,19 @@ function App() {
 
   const fetchTodayStats = useCallback(async () => {
     try {
-      const todayData = await window.electronAPI.getTodayStats() as any // bypass temporarily if electron boundary not updated
-      setTodayStats({ ...todayData })
+      if (timeRange === '今日') {
+        const todayData = await window.electronAPI.getTodayStats() as any
+        setTodayStats({ ...todayData })
+      } else {
+        const days = timeRange === '近7天' ? 7 : 30
+        const periodData = await window.electronAPI.getPeriodStats(days)
+        if (periodData) {
+          setTodayStats(periodData.stats)
+          setPeriodChartData(periodData.chartData)
+        }
+      }
     } catch (e) { console.error(e) }
-  }, [])
+  }, [timeRange])
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -52,12 +64,14 @@ function App() {
 
   const fetchHistory = useCallback(async () => {
     try {
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-      const start = today.getTime()
-      setHistoryData(await window.electronAPI.getHistory(start, start + 86400000))
+      if (timeRange === '今日') {
+        const today = new Date()
+        today.setHours(0, 0, 0, 0)
+        const start = today.getTime()
+        setHistoryData(await window.electronAPI.getHistory(start, start + 86400000))
+      }
     } catch (e) { console.error(e) }
-  }, [])
+  }, [timeRange])
 
   const fetchPermission = useCallback(async () => {
     try {
@@ -91,11 +105,15 @@ function App() {
   }, [todayStats])
 
   const chartData = useMemo(() => {
-    return historyData.map((item) => {
-      const d = new Date(item.timestamp)
-      return { time: `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`, score: item.score }
-    })
-  }, [historyData])
+    if (timeRange === '今日') {
+      return historyData.map((item) => {
+        const d = new Date(item.timestamp)
+        return { time: `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`, score: item.score }
+      })
+    } else {
+      return periodChartData
+    }
+  }, [historyData, periodChartData, timeRange])
 
   const pieData = useMemo(() => {
     return todayStats ? [
@@ -127,102 +145,148 @@ function App() {
         }
       }}
     >
-      <div className="app-container">
-        {/* 头部 */}
-        <div className="header">
-          <Title level={4} style={{
-            margin: 0,
-            background: 'linear-gradient(135deg, #818cf8, #c084fc)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent'
-          }}>
-            DevMood
-          </Title>
-          <Text type="secondary" style={{ fontSize: 11, letterSpacing: 2 }}>开发者状态助手</Text>
-        </div>
+      <div style={{ display: 'flex', height: '100vh', width: '100vw', overflow: 'hidden', background: '#0f0f1a' }}>
+        {/* 左侧侧边栏 */}
+        <div style={{ 
+          width: 220, 
+          borderRight: '1px solid rgba(255,255,255,0.08)', 
+          display: 'flex', 
+          flexDirection: 'column',
+          background: 'rgba(255,255,255,0.02)'
+        }}>
+          <div style={{ padding: '24px 20px', marginBottom: 8 }}>
+            <Title level={4} style={{
+              margin: 0,
+              background: 'linear-gradient(135deg, #818cf8, #c084fc)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              fontWeight: 800
+            }}>
+              DevMood
+            </Title>
+            <Text type="secondary" style={{ fontSize: 11, letterSpacing: 2 }}>开发者状态助手</Text>
+          </div>
 
-        {/* 权限提示 */}
-        {permissionGranted === false && (
-          <Alert
-            message="需要辅助功能权限"
-            description={
-              <Steps
-                direction="vertical"
-                size="small"
-                current={0}
-                items={[
-                  { title: '打开系统设置', description: '隐私与安全性 → 辅助功能' },
-                  { title: '找到 Electron 或 DevMood', description: '勾选开关启用权限' },
-                  { title: '权限授予后自动生效', description: '无需重启应用' },
-                ]}
-              />
-            }
-            type="warning"
-            showIcon
-            icon={<SafetyOutlined />}
-            style={{ marginBottom: 16, borderRadius: 12 }}
-            closable
-          />
-        )}
+          <div style={{ padding: '0 12px', flex: 1 }}>
+            <div 
+              style={{
+                padding: '10px 16px', 
+                borderRadius: 8, 
+                cursor: 'pointer',
+                background: activeTab === '实时状态' ? 'rgba(129, 140, 248, 0.15)' : 'transparent',
+                color: activeTab === '实时状态' ? '#818cf8' : 'rgba(255,255,255,0.65)',
+                marginBottom: 8,
+                transition: 'all 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12
+              }}
+              onClick={() => setActiveTab('实时状态')}
+            >
+              <DashboardOutlined style={{ fontSize: 16 }} />
+              <span style={{ fontWeight: activeTab === '实时状态' ? 600 : 400 }}>实时状态</span>
+            </div>
 
-        {/* Tab 切换 */}
-        <Segmented
-          value={activeTab}
-          onChange={(v) => setActiveTab(v as TabType)}
-          options={[
-            { label: '实时状态', value: '实时状态', icon: <DashboardOutlined /> },
-            { label: '数据分析', value: '数据分析', icon: <BarChartOutlined /> },
-          ]}
-          block
-          style={{ marginBottom: 16 }}
-        />
-
-        {activeTab === '实时状态' ? (
-          <div>
-            <RealTimePanel 
-              status={status} 
-              todayStats={todayStats} 
-              totalTime={totalTime} 
-            />
-
-            {/* 权限状态 */}
-            <div style={{ textAlign: 'center', marginTop: 8 }}>
-              <Tooltip title={permissionGranted ? '全局键鼠监控已激活' : '未获得辅助功能权限，数据可能不准确'}>
-                <Badge
-                  status={permissionGranted ? 'success' : 'error'}
-                  text={<Text type="secondary" style={{ fontSize: 11 }}>
-                    {permissionGranted ? '监控已激活' : '监控未激活'}
-                  </Text>}
-                />
-              </Tooltip>
+            <div 
+              style={{
+                padding: '10px 16px', 
+                borderRadius: 8, 
+                cursor: 'pointer',
+                background: activeTab === '数据分析' ? 'rgba(129, 140, 248, 0.15)' : 'transparent',
+                color: activeTab === '数据分析' ? '#818cf8' : 'rgba(255,255,255,0.65)',
+                marginBottom: 8,
+                transition: 'all 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12
+              }}
+              onClick={() => setActiveTab('数据分析')}
+            >
+              <BarChartOutlined style={{ fontSize: 16 }} />
+              <span style={{ fontWeight: activeTab === '数据分析' ? 600 : 400 }}>数据分析</span>
             </div>
           </div>
-        ) : (
-          <DataAnalysisPanel 
-            chartData={chartData}
-            pieData={pieData}
-            historyData={historyData}
-            todayStats={todayStats}
-            totalTime={totalTime}
-          />
-        )}
 
-        {/* 设置按钮 */}
-        <Button
-          type="primary"
-          shape="circle"
-          icon={<SettingOutlined />}
-          className="clickable"
-          style={{
-            position: 'fixed',
-            bottom: 24,
-            right: 24,
-            width: 44,
-            height: 44,
-            zIndex: 50,
-          }}
-          onClick={() => setShowSettings(true)}
-        />
+          <div style={{ padding: '20px 16px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            <Button 
+              type="text" 
+              block 
+              icon={<SettingOutlined />} 
+              onClick={() => setShowSettings(true)}
+              style={{ 
+                textAlign: 'left', 
+                color: 'rgba(255,255,255,0.65)', 
+                display: 'flex',
+                alignItems: 'center',
+                padding: '8px 16px',
+                height: 40
+              }}
+            >
+              偏好设置
+            </Button>
+          </div>
+        </div>
+
+        {/* 右侧主内容区 */}
+        <div style={{ flex: 1, padding: '24px 32px', overflowY: 'auto' }}>
+          {/* 权限提示 */}
+          {permissionGranted === false && (
+            <Alert
+              message="需要辅助功能权限"
+              description={
+                <Steps
+                  direction="vertical"
+                  size="small"
+                  current={0}
+                  items={[
+                    { title: '打开系统设置', description: '隐私与安全性 → 辅助功能' },
+                    { title: '找到 Electron 或 DevMood', description: '勾选开关启用权限' },
+                    { title: '权限授予后自动生效', description: '无需重启应用' },
+                  ]}
+                />
+              }
+              type="warning"
+              showIcon
+              icon={<SafetyOutlined />}
+              style={{ marginBottom: 24, borderRadius: 12 }}
+              closable
+            />
+          )}
+
+          {activeTab === '实时状态' ? (
+            <div style={{ maxWidth: 800, margin: '0 auto' }}>
+              <RealTimePanel 
+                status={status} 
+                todayStats={todayStats} 
+                totalTime={totalTime} 
+              />
+              
+              {/* 权限状态 */}
+              <div style={{ textAlign: 'center', marginTop: 16 }}>
+                <Tooltip title={permissionGranted ? '全局键鼠监控已激活' : '未获得辅助功能权限，数据可能不准确'}>
+                  <Badge
+                    status={permissionGranted ? 'success' : 'error'}
+                    text={<Text type="secondary" style={{ fontSize: 12 }}>
+                      {permissionGranted ? '监控已激活' : '监控未激活'}
+                    </Text>}
+                  />
+                </Tooltip>
+              </div>
+            </div>
+          ) : (
+            <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+              <DataAnalysisPanel 
+                chartData={chartData}
+                pieData={pieData}
+                historyData={historyData}
+                todayStats={todayStats}
+                totalTime={totalTime}
+                timeRange={timeRange}
+                setTimeRange={setTimeRange}
+              />
+            </div>
+          )}
+        </div>
 
         {/* 设置面板 */}
         <SettingsDrawer 

@@ -428,6 +428,11 @@ ipcMain.handle('get-today-stats', async () => {
   return await database.getTodayStats()
 })
 
+ipcMain.handle('get-period-stats', async (_event, days: number) => {
+  if (!database) return null
+  return await database.getPeriodStats(days)
+})
+
 ipcMain.handle('reset-work-timer', () => {
   stateAnalyzer?.resetWorkTimer()
 })

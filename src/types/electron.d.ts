@@ -10,7 +10,19 @@ export interface ElectronAPI {
     totalFatiguedTime: number
     totalStuckTime: number
     totalFrustratedTime: number
+    totalSlackingTime: number
     averageScore: number
+  } | null>
+  getPeriodStats: (days: number) => Promise<{
+    chartData: Array<{ time: string; score: number }>
+    stats: {
+      totalFocusedTime: number
+      totalFatiguedTime: number
+      totalStuckTime: number
+      totalFrustratedTime: number
+      totalSlackingTime: number
+      averageScore: number
+    }
   } | null>
   resetWorkTimer: () => Promise<void>
   clearHistory: () => Promise<void>

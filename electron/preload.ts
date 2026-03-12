@@ -35,6 +35,21 @@ const electronAPI = {
     return ipcRenderer.invoke('get-today-stats')
   },
 
+  // 获取长期统计数据 (按天聚合)
+  getPeriodStats: (days: number): Promise<{
+    chartData: Array<{ time: string; score: number }>
+    stats: {
+      totalFocusedTime: number
+      totalFatiguedTime: number
+      totalStuckTime: number
+      totalFrustratedTime: number
+      totalSlackingTime: number
+      averageScore: number
+    }
+  } | null> => {
+    return ipcRenderer.invoke('get-period-stats', days)
+  },
+
   // 重置工作计时
   resetWorkTimer: (): Promise<void> => {
     return ipcRenderer.invoke('reset-work-timer')

@@ -227,6 +227,7 @@ class AppDatabase {
     let totalFatiguedTime = 0
     let totalStuckTime = 0
     let totalFrustratedTime = 0
+    let totalSlackingTime = 0
     let totalScore = 0
 
     // 这里采用与之前同样的估算逻辑：每条记录代表 10 秒
@@ -237,6 +238,7 @@ class AppDatabase {
       else if (record.state === 'fatigued') totalFatiguedTime += timePerRecord
       else if (record.state === 'stuck') totalStuckTime += timePerRecord
       else if (record.state === 'frustrated') totalFrustratedTime += timePerRecord
+      else if (record.state === 'slacking') totalSlackingTime += timePerRecord
 
       totalScore += record.score
     }
@@ -248,7 +250,102 @@ class AppDatabase {
       totalFatiguedTime: Math.round(totalFatiguedTime / 60000),
       totalStuckTime: Math.round(totalStuckTime / 60000),
       totalFrustratedTime: Math.round(totalFrustratedTime / 60000),
+      totalSlackingTime: Math.round(totalSlackingTime / 60000),
       averageScore
+    }
+  }
+
+  async getPeriodStats(days: number) {
+    const today = new Date()
+    today.setHours(23, 59, 59, 999)
+    const endTime = today.getTime()
+    
+    const startDate = new Date()
+    startDate.setDate(startDate.getDate() - days + 1)
+    startDate.setHours(0, 0, 0, 0)
+    const startTime = startDate.getTime()
+
+    const history = await this.getHistory(startTime, endTime)
+
+    // 按天进行聚合
+    const dailyStats: Record<string, {
+      totalScore: number
+      count: number
+      states: Record<string, number>
+    }> = {}
+
+    // 初始化每天的空数据结构
+    for (let i = 0; i < days; i++) {
+      const d = new Date(startDate)
+      d.setDate(d.getDate() + i)
+      const dateStr = `${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`
+      dailyStats[dateStr] = {
+        totalScore: 0,
+        count: 0,
+        states: {
+          focused: 0,
+          fatigued: 0,
+          stuck: 0,
+          slacking: 0,
+          frustrated: 0,
+          normal: 0
+        }
+      }
+    }
+
+    const timePerRecord = 10 * 1000 // 10秒
+
+    for (const record of history) {
+      const d = new Date(record.timestamp)
+      const dateStr = `${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`
+      
+      if (dailyStats[dateStr]) {
+        dailyStats[dateStr].totalScore += record.score
+        dailyStats[dateStr].count++
+        if (dailyStats[dateStr].states[record.state] !== undefined) {
+          dailyStats[dateStr].states[record.state] += timePerRecord
+        }
+      }
+    }
+
+    // 格式化输出为图表所需结构
+    const chartData = []
+    const aggregateTime = {
+      totalFocusedTime: 0,
+      totalFatiguedTime: 0,
+      totalStuckTime: 0,
+      totalSlackingTime: 0,
+      totalFrustratedTime: 0,
+    }
+    let grandTotalScore = 0
+    let grandTotalCount = 0
+
+    for (const [date, stats] of Object.entries(dailyStats)) {
+      const averageScore = stats.count > 0 ? Math.round(stats.totalScore / stats.count) : 0
+      chartData.push({ time: date, score: averageScore })
+      
+      aggregateTime.totalFocusedTime += stats.states.focused
+      aggregateTime.totalFatiguedTime += stats.states.fatigued
+      aggregateTime.totalStuckTime += stats.states.stuck
+      aggregateTime.totalSlackingTime += stats.states.slacking
+      aggregateTime.totalFrustratedTime += stats.states.frustrated
+      
+      grandTotalScore += stats.totalScore
+      grandTotalCount += stats.count
+    }
+
+    const averageScore = grandTotalCount > 0 ? Math.round(grandTotalScore / grandTotalCount) : 0
+
+    return {
+      chartData,
+      stats: {
+        totalFocusedTime: Math.round(aggregateTime.totalFocusedTime / 60000),
+        totalFatiguedTime: Math.round(aggregateTime.totalFatiguedTime / 60000),
+        totalStuckTime: Math.round(aggregateTime.totalStuckTime / 60000),
+        totalSlackingTime: Math.round(aggregateTime.totalSlackingTime / 60000),
+        totalFrustratedTime: Math.round(aggregateTime.totalFrustratedTime / 60000),
+        averageScore
+      }
     }
   }
 

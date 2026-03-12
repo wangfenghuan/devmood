@@ -1,4 +1,4 @@
-import { Card, Typography, Space, Row, Col, Statistic } from 'antd'
+import { Card, Typography, Space, Row, Col, Statistic, Segmented } from 'antd'
 import {
   LineChartOutlined, PieChartOutlined, AppstoreOutlined
 } from '@ant-design/icons'
@@ -38,16 +38,29 @@ interface DataAnalysisPanelProps {
     totalFatiguedTime: number
     totalStuckTime: number
     totalFrustratedTime: number
+    totalSlackingTime: number
     averageScore: number
   } | null
   totalTime: number
+  timeRange: '今日' | '近7天' | '近30天'
+  setTimeRange: (range: '今日' | '近7天' | '近30天') => void
 }
 
 export default function DataAnalysisPanel({
-  chartData, pieData, historyData, todayStats, totalTime
+  chartData, pieData, historyData, todayStats, totalTime, timeRange, setTimeRange
 }: DataAnalysisPanelProps) {
   return (
     <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <Text strong style={{ fontSize: 16, color: 'rgba(255,255,255,0.85)' }}>数据分析</Text>
+        <Segmented
+          value={timeRange}
+          onChange={(v) => setTimeRange(v as '今日' | '近7天' | '近30天')}
+          options={['今日', '近7天', '近30天']}
+          size="small"
+        />
+      </div>
+
       {/* 效率趋势 */}
       <Card title={
         <Space size={8}>
@@ -77,38 +90,40 @@ export default function DataAnalysisPanel({
         )}
       </Card>
 
-      {/* 饼图 */}
-      <Card title={
-        <Space size={8}>
-          <PieChartOutlined style={{ color: '#10B981' }} />
-          <span>状态分布</span>
-        </Space>
-      } size="small" style={{ marginBottom: 12 }}>
-        {pieData.length > 0 ? (
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            <ResponsiveContainer width="50%" height={140}>
-              <PieChart>
-                <Pie data={pieData} cx="50%" cy="50%" innerRadius={35} outerRadius={55} paddingAngle={3} dataKey="value" strokeWidth={0}>
-                  {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
-            <Space direction="vertical" size={6}>
-              {pieData.map((entry, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                  <Text style={{ fontSize: 12 }}>{entry.name}</Text>
-                  <Text type="secondary" style={{ fontSize: 11 }}>{formatMinutes(entry.value)}</Text>
-                </div>
-              ))}
-            </Space>
-          </div>
-        ) : (
-          <div style={{ textAlign: 'center', padding: 32 }}>
-            <Text type="secondary">暂无数据</Text>
-          </div>
-        )}
-      </Card>
+      {/* 饼图 (仅今日可见) */}
+      {timeRange === '今日' && (
+        <Card title={
+          <Space size={8}>
+            <PieChartOutlined style={{ color: '#10B981' }} />
+            <span>状态分布</span>
+          </Space>
+        } size="small" style={{ marginBottom: 12 }}>
+          {pieData.length > 0 ? (
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <ResponsiveContainer width="50%" height={140}>
+                <PieChart>
+                  <Pie data={pieData} cx="50%" cy="50%" innerRadius={35} outerRadius={55} paddingAngle={3} dataKey="value" strokeWidth={0}>
+                    {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+              <Space direction="vertical" size={6}>
+                {pieData.map((entry, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                    <Text style={{ fontSize: 12 }}>{entry.name}</Text>
+                    <Text type="secondary" style={{ fontSize: 11 }}>{formatMinutes(entry.value)}</Text>
+                  </div>
+                ))}
+              </Space>
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: 32 }}>
+              <Text type="secondary">暂无数据</Text>
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* 概览 */}
       <Card title={
