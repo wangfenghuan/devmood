@@ -60,6 +60,16 @@ const electronAPI = {
     return ipcRenderer.invoke('clear-history')
   },
 
+  // 导出数据
+  exportData: (): Promise<{ success: boolean; canceled?: boolean; error?: string }> => {
+    return ipcRenderer.invoke('export-data')
+  },
+
+  // 导入数据
+  importData: (): Promise<{ success: boolean; canceled?: boolean; error?: string }> => {
+    return ipcRenderer.invoke('import-data')
+  },
+
   // 获取权限状态
   getPermissionStatus: (): Promise<{ granted: boolean; platform: string }> => {
     return ipcRenderer.invoke('get-permission-status')

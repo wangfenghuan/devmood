@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, Notification, Tray, Menu, nativeImage, powerMonitor, systemPreferences, dialog, shell } from 'electron'
 import path from 'path'
+import fs from 'fs'
 import { uIOhook } from 'uiohook-napi'
 import ActivityMonitor from './activityMonitor'
 import StateAnalyzer from './stateAnalyzer'
@@ -442,6 +443,58 @@ ipcMain.handle('clear-history', async () => {
     await database.clearHistory()
     // 同时也重置分析器的内部缓存，以防数据不一致
     stateAnalyzer?.resetWorkTimer()
+  }
+})
+
+ipcMain.handle('export-data', async () => {
+  if (!database) return { success: false, error: 'Database not initialized' }
+
+  try {
+    const defaultPath = path.join(app.getPath('downloads'), `devmood-backup-${new Date().toISOString().split('T')[0]}.json`)
+    
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow!, {
+      title: '导出历史数据与设置',
+      defaultPath,
+      filters: [{ name: 'JSON 数据备份', extensions: ['json'] }]
+    })
+
+    if (canceled || !filePath) return { success: true, canceled: true }
+
+    const jsonData = await database.exportAllData()
+    fs.writeFileSync(filePath, jsonData, 'utf-8')
+
+    return { success: true }
+  } catch (err: any) {
+    console.error('Export failed:', err)
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('import-data', async () => {
+  if (!database) return { success: false, error: 'Database not initialized' }
+
+  try {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow!, {
+      title: '导入历史数据与设置',
+      properties: ['openFile'],
+      filters: [{ name: 'JSON 数据备份', extensions: ['json'] }]
+    })
+
+    if (canceled || filePaths.length === 0) return { success: true, canceled: true }
+
+    const jsonData = fs.readFileSync(filePaths[0], 'utf-8')
+    const success = await database.importAllData(jsonData)
+
+    if (success) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('status-update', currentStatus)
+      }
+    }
+
+    return { success }
+  } catch (err: any) {
+    console.error('Import failed:', err)
+    return { success: false, error: err.message }
   }
 })
 

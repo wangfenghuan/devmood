@@ -1,5 +1,5 @@
 import { Typography, Switch, InputNumber, Button, Space, Drawer, Card, Modal, message } from 'antd'
-import { CheckCircleOutlined, ExclamationCircleOutlined, DeleteOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, ExclamationCircleOutlined, DeleteOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons'
 import { AppSettings } from '../types'
 
 const { Text, Paragraph } = Typography
@@ -163,6 +163,47 @@ export default function SettingsDrawer({
                 }}
               >
                 重置今日工作计时
+              </Button>
+
+              <Button
+                block
+                icon={<DownloadOutlined />}
+                onClick={async () => {
+                  const res = await window.electronAPI.exportData()
+                  if (res.success) {
+                    if (!res.canceled) message.success('数据与设置导出成功')
+                  } else {
+                    message.error('导出失败: ' + res.error)
+                  }
+                }}
+              >
+                导出所有数据与设置 (备份)
+              </Button>
+
+              <Button
+                block
+                icon={<UploadOutlined />}
+                onClick={async () => {
+                  Modal.confirm({
+                    title: '导入历史数据',
+                    content: '这将会覆盖掉您系统当前暂存的所有数据和设置，确定要继续导入吗？',
+                    okText: '确认导入',
+                    cancelText: '取消',
+                    onOk: async () => {
+                      const res = await window.electronAPI.importData()
+                      if (res.success) {
+                        if (!res.canceled) {
+                          setShowSettings(false)
+                          message.success('数据已成功导入并生效！')
+                        }
+                      } else {
+                        message.error('导入失败: ' + res.error)
+                      }
+                    }
+                  })
+                }}
+              >
+                导入数据文件 (恢复)
               </Button>
 
               <Button

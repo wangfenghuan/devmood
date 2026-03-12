@@ -234,42 +234,27 @@ class ActivityMonitor extends EventEmitter {
     this.lastActivityTime = Date.now() - idleTime
   }
 
-  // 借助 macOS AppleScript 获取当前活跃的 App 及窗口标题
-  private fetchActiveWindow() {
-    if (process.platform !== 'darwin') return
-    
-    // AppleScript 获取带窗口焦点的、非隐藏的真实前台 App（过滤不可见的系统服务自身和包皮进程）
-    const script = `
-      global frontApp, frontAppName, windowTitle
-      set windowTitle to ""
-      tell application "System Events"
-        set frontApp to first application process whose frontmost is true
-        set frontAppName to name of frontApp
-        try
-          tell process frontAppName
-            set windowTitle to name of front window
-          end tell
-        end try
-      end tell
+  // 借助跨平台库 active-win 获取当前活跃的 App 及窗口标题
+  private async fetchActiveWindow() {
+    try {
+      // 动态导入以兼容纯 ESM 包 (active-win >= 8v)
+      const { default: activeWin } = await import('active-win')
+      const window = await activeWin()
       
-      -- 如果探测到自身 Electron 进程名字，但是没有实际标题或者是开发者工具，我们可能想返回 Unknown 让它过滤掉，
-      -- 或者直接返回当前运行的 DevMood
-      if frontAppName contains "Electron" then
-        set frontAppName to "DevMood"
-      end if
-      
-      return frontAppName & ":::" & windowTitle
-    `
-    
-    exec(`osascript -e '${script}'`, (error, stdout) => {
-      if (!error && stdout) {
-        const parts = stdout.trim().split(':::')
-        if (parts.length >= 1) {
-          this.currentWindowProcess = parts[0]
-          this.currentWindowTitle = parts[1] || ''
+      if (window) {
+        let processName = window.owner.name
+
+        // 过滤 Electron 宿主进程避免判定漂移
+        if (processName.includes('Electron')) {
+          processName = 'DevMood'
         }
+
+        this.currentWindowProcess = processName
+        this.currentWindowTitle = window.title || ''
       }
-    })
+    } catch (err) {
+      // 静默处理获取失败防止刷屏
+    }
   }
 }
 

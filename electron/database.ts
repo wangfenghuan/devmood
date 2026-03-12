@@ -406,6 +406,94 @@ class AppDatabase {
     }
   }
 
+  async exportAllData(): Promise<string> {
+    await this.init()
+    if (!this.db) return '{}'
+    
+    try {
+      // 导出所有历史记录
+      const historyStmt = this.db.prepare('SELECT * FROM history ORDER BY timestamp ASC')
+      const history = []
+      while (historyStmt.step()) {
+        const row = historyStmt.getAsObject()
+        history.push({
+          timestamp: row.timestamp,
+          state: row.state,
+          score: row.score,
+          confidence: row.confidence,
+          indicators: JSON.parse(row.indicators as string)
+        })
+      }
+      historyStmt.free()
+      
+      // 导出所有设置
+      const settings = await this.getSettings()
+      
+      return JSON.stringify({
+        version: 1,
+        exportedAt: Date.now(),
+        settings,
+        history
+      }, null, 2)
+    } catch (err) {
+      console.error('[Database] Failed to export data:', err)
+      throw err
+    }
+  }
+
+  async importAllData(jsonData: string): Promise<boolean> {
+    await this.init()
+    if (!this.db) return false
+    
+    try {
+      const data = JSON.parse(jsonData)
+      if (!data.history || !data.settings) return false
+      
+      this.db.run('BEGIN TRANSACTION;')
+      
+      // 清空现有数据
+      this.db.run('DELETE FROM history;')
+      
+      // 导入历史记录
+      const historyStmt = this.db.prepare(`
+        INSERT INTO history (timestamp, state, score, confidence, indicators) 
+        VALUES (?, ?, ?, ?, ?)
+      `)
+      
+      for (const record of data.history) {
+        historyStmt.run([
+          record.timestamp,
+          record.state,
+          record.score,
+          record.confidence,
+          JSON.stringify(record.indicators || {})
+        ])
+      }
+      historyStmt.free()
+      
+      // 导入设置
+      const settingsStmt = this.db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+      for (const [key, value] of Object.entries(data.settings)) {
+        settingsStmt.run([key, JSON.stringify(value)])
+      }
+      settingsStmt.free()
+      
+      this.db.run('COMMIT;')
+      
+      // 更新缓存
+      this.cachedSettings = { ...this.defaultSettings, ...data.settings }
+      
+      this.saveDb()
+      return true
+    } catch (err) {
+      console.error('[Database] Failed to import data:', err)
+      if (this.db) {
+        try { this.db.run('ROLLBACK;') } catch(e) {}
+      }
+      return false
+    }
+  }
+
   close(): void {
     if (this.db) {
       this.saveDb() // 确保最后一次写入
