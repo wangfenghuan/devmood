@@ -6,7 +6,7 @@ import ActivityMonitor from './activityMonitor'
 import StateAnalyzer from './stateAnalyzer'
 import AppDatabase from './database'
 import { AIService } from './aiService' // Added AIService import
-import { CurrentStatus, StatusSnapshot, AppSettings, STATE_LABELS, ActivityData } from './types'
+import { CurrentStatus, StatusSnapshot, AppSettings, STATE_LABELS, ActivityData, DeveloperState } from './types'
 
 // 使用全局变量跟踪退出状态
 let isQuitting = false
@@ -31,6 +31,8 @@ let currentStatus: CurrentStatus = {
     scrollFrequency: 0,
     idleTime: 0,
     totalKeystrokes: 0,
+    backspaceCount: 0,
+    copyPasteCount: 0,
     totalMouseClicks: 0,
     totalMouseMoves: 0,
     activeWindow: 'Unknown',
@@ -135,13 +137,38 @@ function registerAndStartHook(): boolean {
   let keyCount = 0
   let clickCount = 0
   let moveCount = 0
+  
+  // 跟踪修饰键状态 (Ctrl 或 Cmd)
+  let isModifierPressed = false
 
-  uIOhook.on('keydown', () => {
+  uIOhook.on('keydown', (e) => {
     keyCount++
     if (keyCount <= 5 || keyCount % 50 === 0) {
-      console.log(`[uiohook] keydown event #${keyCount}`)
+      console.log(`[uiohook] keydown event #${keyCount}, code: ${e.keycode}`)
     }
-    activityMonitor?.recordKeystroke()
+    activityMonitor?.recordKeystroke(e.keycode)
+
+    // 修饰键 (29=Ctrl, 3675=Right Ctrl, 56=Alt, 3640=Right Alt, 3675/3676=Cmd/Win depending on OS, mapped differently sometimes.
+    // 简单点，常见左Ctrl=29, 右Ctrl=3613, 左Cmd/Win=3675, 右Cmd/Win=3676)
+    if (e.keycode === 29 || e.keycode === 3613 || e.keycode === 3675 || e.keycode === 3676) {
+      isModifierPressed = true
+    }
+
+    // Backspace (14) or Delete (3667 / 211)
+    if (e.keycode === 14 || e.keycode === 3667 || e.keycode === 211) {
+      activityMonitor?.recordBackspace()
+    }
+
+    // C (46) or V (47) or X (45) + Modifier (Copy/Paste/Cut)
+    if (isModifierPressed && (e.keycode === 46 || e.keycode === 47 || e.keycode === 45)) {
+      activityMonitor?.recordCopyPaste()
+    }
+  })
+
+  uIOhook.on('keyup', (e) => {
+    if (e.keycode === 29 || e.keycode === 3613 || e.keycode === 3675 || e.keycode === 3676) {
+      isModifierPressed = false
+    }
   })
 
   uIOhook.on('click', () => {
@@ -479,6 +506,12 @@ ipcMain.handle('clear-history', async () => {
     // 同时也重置分析器的内部缓存，以防数据不一致
     stateAnalyzer?.resetWorkTimer()
   }
+})
+
+ipcMain.handle('user-feedback', async (_event, data: { statusId?: number, state: DeveloperState, isAccurate: boolean }) => {
+  // 这里暂时只打印日志，未来可以调用 stateAnalyzer.mlAnalyzer.addFeedback(data.state, data.isAccurate)
+  console.log(`[Feedback] User judged AI state prediction '${data.state}' as: ${data.isAccurate ? 'Accurate' : 'Inaccurate'}`)
+  return { success: true }
 })
 
 ipcMain.handle('export-data', async () => {

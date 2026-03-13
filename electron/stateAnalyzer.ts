@@ -18,6 +18,12 @@ class StateAnalyzer {
   private smoothedScore: number = 60
   private readonly SCORE_SMOOTHING = 0.3
 
+  // 个人基准线 (Personalized Baseline)
+  private userBaseline: {
+    typingSpeed: number;
+    samples: number;
+  } = { typingSpeed: 40, samples: 0 }
+
   // ML 分析器
   private mlAnalyzer: MLAnalyzer
 
@@ -80,7 +86,9 @@ class StateAnalyzer {
     // 用规则系统的标签来训练 ML 模型
     this.mlAnalyzer.addSample(mlFeatures, ruleState)
 
-    // 状态平滑：新状态需要连续出现 MIN_STATE_PERSISTENCE 次才切换
+    // 预测性状态平滑 (Predictive State Smoothing)
+    // 如果趋势(typingTrend)急剧下降且当前是高活动状态，我们可以降低进入疲劳/卡住的等待时间
+    // 为了保持稳定性，暂时保留3次(约30秒)的确认机制，但在 identifyState 里我们已经让阈值变得更动态了
     if (rawState !== this.currentState) {
       if (rawState === this.pendingState) {
         this.pendingStateCount++
@@ -164,6 +172,10 @@ class StateAnalyzer {
     // 点击频率变化率
     const clickTrend = this.calculateTrend(history.map(h => h.clickFrequency))
 
+    // 特定键位使用频率 (退格/复制粘贴)
+    const avgBackspaceCount = this.average(history.map(h => h.backspaceCount || 0))
+    const avgCopyPasteCount = this.average(history.map(h => h.copyPasteCount || 0))
+
     // 空闲时间比例
     const avgIdleTime = this.average(history.map(h => h.idleTime))
     const idleRatio = avgIdleTime / 60000 // 转换为分钟比例
@@ -176,12 +188,19 @@ class StateAnalyzer {
     // 打字节奏一致性 (专注时节奏更稳定)
     const typingRhythm = this.calculateRhythm(history.map(h => h.typingSpeed))
 
+    // 更新个人基准线 (如果状态相对稳定且在 IDE 中专注打字)
+    if (avgTypingSpeed > 10 && idleRatio < 0.2) {
+      this.updateBaseline(avgTypingSpeed)
+    }
+
     return {
       avgTypingSpeed,
       typingTrend,
       avgMouseSpeed,
       avgClickFrequency,
       clickTrend,
+      avgBackspaceCount,
+      avgCopyPasteCount,
       avgIdleTime,
       idleRatio,
       activityVariance,
@@ -197,22 +216,32 @@ class StateAnalyzer {
   private identifyState(metrics: ReturnType<typeof this.calculateMetrics>): DeveloperState {
     const {
       avgTypingSpeed, typingTrend, avgClickFrequency, clickTrend,
+      avgBackspaceCount, avgCopyPasteCount,
       idleRatio, activityVariance, typingRhythm, currentIdleTime, activeWindow
     } = metrics
 
     const windowLower = (activeWindow || '').toLowerCase()
     
-    // 应用分类
+    // 深度上下文分类
     const isIDE = windowLower.includes('code') || windowLower.includes('intellij') || 
                   windowLower.includes('webstorm') || windowLower.includes('cursor') || 
-                  windowLower.includes('xcode') || windowLower.includes('studio') || windowLower.includes('terminal') || windowLower.includes('iterm')
+                  windowLower.includes('xcode') || windowLower.includes('studio') || windowLower.includes('vim') || windowLower.includes('nvim')
                   
+    const isTerminalOrLog = windowLower.includes('terminal') || windowLower.includes('iterm') || 
+                            windowLower.includes('.log') || windowLower.includes('console')
+                            
     const isBrowser = windowLower.includes('chrome') || windowLower.includes('safari') || 
                       windowLower.includes('edge') || windowLower.includes('firefox') || windowLower.includes('arc')
                       
     const isEntertainment = windowLower.includes('bilibili') || windowLower.includes('youtube') || 
                             windowLower.includes('music') || windowLower.includes('netflix') || 
                             windowLower.includes('tencent') || windowLower.includes('weibo') || windowLower.includes('twitter')
+                            
+    const isResearching = windowLower.includes('stackoverflow') || windowLower.includes('github') || 
+                          windowLower.includes('docs') || windowLower.includes('gpt') || windowLower.includes('claude') || windowLower.includes('devmood')
+
+    // 个人基准线参考
+    const baseline = this.userBaseline.typingSpeed > 0 ? this.userBaseline.typingSpeed : 40
 
     // 0. 特殊状态优先检测：如果在明确的娱乐软件中
     if (isEntertainment) {
@@ -220,51 +249,52 @@ class StateAnalyzer {
     }
 
     // 1. 检测疲劳状态
-    // 特征：打字速度下降、点击频率下降、空闲时间增加、打字节奏变慢
+    // 特征：打字速度显著低于个人基准，点击下降，空闲增加，节奏变慢
     if (
-      (avgTypingSpeed > 0 && avgTypingSpeed < 30 && typingTrend < -0.2 && !isIDE) ||
+      (avgTypingSpeed > 0 && avgTypingSpeed < baseline * 0.4 && typingTrend < -0.2 && !isIDE && !isTerminalOrLog) ||
       (idleRatio > 0.5 && typingTrend < -0.3) ||
       (currentIdleTime > 2 * 60 * 1000) // 空闲超过2分钟
     ) {
       return 'fatigued'
     }
 
-    // 2. 检测摸鱼/浏览状态 (Slacking) 新增！
-    // 特征：非IDE环境下，打字极低，只有高点击和滚动（可能在看别人视频，或者摸鱼乱点）
+    // 2. 检测摸鱼/浏览状态 (Slacking)
     if (
       isBrowser && avgTypingSpeed < 10 && avgClickFrequency > 5 && activityVariance < 100
     ) {
-      // 进一步通过 title 判断是不是在stackoverflow等学习网站
-      if (windowLower.includes('stackoverflow') || windowLower.includes('github') || windowLower.includes('docs') || windowLower.includes('gpt')) {
+      if (isResearching) {
         return 'stuck' // 在查资料
       }
       return 'slacking' // 纯冲浪
     }
 
-    // 3. 检测卡住状态 (Stuck) 
-    // 特征：IDE中低输入但非空闲、频繁切换活动、删除/重试模式
+    // 3. 检测烦躁状态 (Frustrated) 优先级提升！
+    // 特征：高频删改、疯狂撤销、疯狂复制粘贴、高频点击
     if (
-      (isIDE && avgTypingSpeed < 20 && avgTypingSpeed > 0 && idleRatio < 0.3) ||
-      (typingTrend < -0.1 && clickTrend > 0.1) || // 打字减少但点击增加
-      (activityVariance > 100 && avgTypingSpeed < 50 && isIDE) // IDE中活动不稳定
-    ) {
-      return 'stuck'
-    }
-
-    // 4. 检测烦躁状态
-    // 特征：高频率点击，频繁切窗
-    if (
+      (avgBackspaceCount > 15) || // 频繁删除
+      (avgCopyPasteCount > 8 && clickTrend > 0.2) || // 疯狂复制粘贴试错
       (avgClickFrequency > 40 && clickTrend > 0.3) ||
-      (activityVariance > 200 && avgTypingSpeed > 80) || 
-      (typingRhythm < 0.3 && avgTypingSpeed > 60)
+      (activityVariance > 200 && avgTypingSpeed > baseline * 1.5) || // 瞎敲发泄
+      (typingRhythm < 0.2 && avgTypingSpeed > 50)
     ) {
       return 'frustrated'
     }
 
-    // 5. 检测专注状态
+    // 4. 检测卡住状态 (Stuck) / Debugging
+    // 特征：看日志/终端但不打字、频繁删除、修改速度慢
     if (
-      (avgTypingSpeed > 50 && typingRhythm > 0.5 && idleRatio < 0.2) ||
-      (isIDE && avgTypingSpeed > 40 && typingTrend >= -0.1) // 只要在编辑器里并且维持平稳输入就视为专注
+      isTerminalOrLog && avgTypingSpeed < 10 && idleRatio < 0.6 || // 盯着终端思考/看日志
+      (isIDE && avgTypingSpeed < baseline * 0.3 && avgTypingSpeed > 0 && idleRatio < 0.3) ||
+      (avgBackspaceCount > 5 && avgTypingSpeed < baseline * 0.5) || // 边写边删，思路不畅
+      (typingTrend < -0.2 && clickTrend > 0.1) // 打字急剧减少但开始到处点
+    ) {
+      return 'stuck'
+    }
+
+    // 5. 检测专注状态 (Focused)
+    if (
+      (avgTypingSpeed > baseline * 0.8 && typingRhythm > 0.5 && idleRatio < 0.2) ||
+      (isIDE && avgTypingSpeed > baseline * 0.5 && typingTrend >= -0.1) // 只要在编辑器里并且维持平稳输入就视为专注
     ) {
       return 'focused'
     }
@@ -404,19 +434,28 @@ class StateAnalyzer {
         break
 
       case 'stuck':
-        indicators.push('检测到思考或查阅资料')
-        if (metrics.avgClickFrequency > metrics.avgTypingSpeed) {
+        if (metrics.activeWindow?.toLowerCase().includes('terminal') || metrics.activeWindow?.toLowerCase().includes('.log')) {
+            indicators.push('正在排查看日志/终端')
+        } else {
+            indicators.push('检测到思考或查阅资料')
+        }
+        if (metrics.avgBackspaceCount > 5) {
+          indicators.push('频繁删改代码，有些卡壳')
+        } else if (metrics.avgClickFrequency > metrics.avgTypingSpeed) {
           indicators.push('点击多于打字，可能在浏览')
         }
         indicators.push('换个思路试试？')
         break
 
       case 'frustrated':
-        if (metrics.activityVariance > 150) {
-          indicators.push('活动模式不稳定')
+        if (metrics.avgBackspaceCount > 15) {
+          indicators.push('当前退格/删除极其频繁')
+        }
+        if (metrics.avgCopyPasteCount > 8) {
+          indicators.push('频繁复制粘贴，陷入试错循环')
         }
         if (metrics.clickTrend > 0.2) {
-          indicators.push('点击频率上升')
+          indicators.push('切窗或点击频率剧烈上升')
         }
         indicators.push('深呼吸，放松一下')
         break
@@ -438,6 +477,21 @@ class StateAnalyzer {
     }
 
     return indicators
+  }
+
+  // 辅助函数：更新个人基准线
+  private updateBaseline(currentSpeed: number): void {
+    const ALPHA = 0.05 // 学习率，越小越平滑
+    // 初始化
+    if (this.userBaseline.samples === 0) {
+      this.userBaseline.typingSpeed = currentSpeed
+      this.userBaseline.samples = 1
+      return
+    }
+    
+    // 指数移动平均线更新基准
+    this.userBaseline.typingSpeed = (ALPHA * currentSpeed) + ((1 - ALPHA) * this.userBaseline.typingSpeed)
+    this.userBaseline.samples++
   }
 
   // 辅助函数：计算平均值

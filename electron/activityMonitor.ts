@@ -12,6 +12,10 @@ class ActivityMonitor extends EventEmitter {
   private mouseClicks: number[] = []
   private mouseMoves: number[] = []
   private mouseScrolls: number[] = []
+  
+  // 新增：特定按键统计
+  private backspaces: number[] = []
+  private copyPastes: number[] = []
   private lastMousePosition = { x: 0, y: 0 }
   private totalMouseDistance: number = 0
 
@@ -86,9 +90,28 @@ class ActivityMonitor extends EventEmitter {
   }
 
   // 记录键盘事件 (由主进程调用)
-  recordKeystroke(): void {
+  recordKeystroke(keycode?: number): void {
     const now = Date.now()
     this.keystrokes.push(now)
+    
+    // 粗略识别特定按键模式 (uiohook keycodes: 14=Backspace, 211=Delete, 46=C, 47=V)
+    // 注意：这里只做简单识别，如果要严格判断 Ctrl+C 需要维护 modifier key 状态，
+    // 为保持性能，只要有 C/V 按下我们也算作一次潜在的操作，或者由 main.ts 判断更准确。
+    // 我们在这里提供方法供 main.ts 调用
+    this.updateActivity(now)
+  }
+
+  // 记录退格/删除
+  recordBackspace(): void {
+    const now = Date.now()
+    this.backspaces.push(now)
+    this.updateActivity(now)
+  }
+
+  // 记录复制/粘贴
+  recordCopyPaste(): void {
+    const now = Date.now()
+    this.copyPastes.push(now)
     this.updateActivity(now)
   }
 
@@ -147,6 +170,8 @@ class ActivityMonitor extends EventEmitter {
     this.mouseClicks = this.mouseClicks.filter(t => t > cutoff)
     this.mouseMoves = this.mouseMoves.filter(t => t > cutoff)
     this.mouseScrolls = this.mouseScrolls.filter(t => t > cutoff)
+    this.backspaces = this.backspaces.filter(t => t > cutoff)
+    this.copyPastes = this.copyPastes.filter(t => t > cutoff)
 
     // 检测空闲状态
     if (now - this.lastActivityTime > this.idleThreshold && this.idleStartTime === null) {
@@ -172,6 +197,8 @@ class ActivityMonitor extends EventEmitter {
       scrollFrequency: this.mouseScrolls.length,
       idleTime: idleTime,
       totalKeystrokes: this.keystrokes.length,
+      backspaceCount: this.backspaces.length,
+      copyPasteCount: this.copyPastes.length,
       totalMouseClicks: this.mouseClicks.length,
       totalMouseMoves: this.mouseMoves.length,
       activeWindow: this.currentWindowProcess ? `${this.currentWindowProcess} - ${this.currentWindowTitle}` : 'Unknown',
@@ -207,6 +234,8 @@ class ActivityMonitor extends EventEmitter {
       scrollFrequency: this.mouseScrolls.length,
       idleTime: idleTime,
       totalKeystrokes: this.keystrokes.length,
+      backspaceCount: this.backspaces.length,
+      copyPasteCount: this.copyPastes.length,
       totalMouseClicks: this.mouseClicks.length,
       totalMouseMoves: this.mouseMoves.length
     }
@@ -218,6 +247,8 @@ class ActivityMonitor extends EventEmitter {
     this.mouseClicks = []
     this.mouseMoves = []
     this.mouseScrolls = []
+    this.backspaces = []
+    this.copyPastes = []
     this.totalMouseDistance = 0
     this.lastActivityTime = Date.now()
     this.idleStartTime = null

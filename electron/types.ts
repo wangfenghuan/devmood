@@ -9,6 +9,8 @@ export interface ActivityData {
   scrollFrequency: number      // 每分钟滚动次数
   idleTime: number            // 空闲时间 (毫秒)
   totalKeystrokes: number     // 总击键数
+  backspaceCount: number      // 退格/删除键使用次数
+  copyPasteCount: number      // 复制/粘贴操作次数
   totalMouseClicks: number    // 总点击数
   totalMouseMoves: number     // 总移动次数
   activeWindow: string        // 当前活动窗口
