@@ -31,6 +31,7 @@ export interface ElectronAPI {
   exportData: () => Promise<{ success: boolean; canceled?: boolean; error?: string }>
   importData: () => Promise<{ success: boolean; canceled?: boolean; error?: string }>
   getPermissionStatus: () => Promise<{ granted: boolean; platform: string }>
+  sendFeedback: (data: { state: string, isAccurate: boolean }) => Promise<{ success: boolean }>
   onStatusUpdate: (callback: (status: CurrentStatus) => void) => () => void
 }
 

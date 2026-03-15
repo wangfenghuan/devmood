@@ -1,8 +1,8 @@
-import { Card, Typography, Tag, Progress, Row, Col, Statistic, Space } from 'antd'
+import { Card, Typography, Tag, Progress, Row, Col, Statistic, Space, Dropdown, message } from 'antd'
 import {
   ThunderboltOutlined, CoffeeOutlined, QuestionCircleOutlined,
   FrownOutlined, DashboardOutlined, SyncOutlined, SmileOutlined,
-  AppstoreOutlined
+  AppstoreOutlined, EditOutlined
 } from '@ant-design/icons'
 import { DeveloperState, CurrentStatus } from '../types'
 
@@ -51,6 +51,27 @@ interface RealTimePanelProps {
 export default function RealTimePanel({ status, todayStats, totalTime }: RealTimePanelProps) {
   const stateConf = status ? STATE_CONFIG[status.state] : STATE_CONFIG.normal
 
+  const handleFeedback = async (correctState: DeveloperState) => {
+    if (!status) return
+    try {
+      await window.electronAPI.sendFeedback({
+        state: correctState,
+        isAccurate: false
+      })
+      message.success(`反馈成功！AI 已将您的习惯记为"${STATE_LABELS[correctState]}"`)
+    } catch (err) {
+      console.error('Feedback failed:', err)
+      message.error('反馈发送失败')
+    }
+  }
+
+  const feedbackMenuItems = Object.entries(STATE_LABELS).map(([stateKey, label]) => ({
+    key: stateKey,
+    label,
+    icon: STATE_CONFIG[stateKey as DeveloperState].icon,
+    onClick: () => handleFeedback(stateKey as DeveloperState)
+  }))
+
   return (
     <div>
       {/* 状态卡片 */}
@@ -58,12 +79,22 @@ export default function RealTimePanel({ status, todayStats, totalTime }: RealTim
         <div style={{ fontSize: 56, marginBottom: 12, lineHeight: 1, color: stateConf.color }} className="state-icon">
           {status ? stateConf.icon : <SyncOutlined spin />}
         </div>
-        <Tag
-          color={stateConf.color}
-          style={{ fontSize: 16, padding: '4px 16px', fontWeight: 700, border: 'none' }}
-        >
-          {status ? STATE_LABELS[status.state] : '加载中...'}
-        </Tag>
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8 }}>
+          <Tag
+            color={stateConf.color}
+            style={{ fontSize: 16, padding: '4px 16px', fontWeight: 700, border: 'none', margin: 0 }}
+          >
+            {status ? STATE_LABELS[status.state] : '加载中...'}
+          </Tag>
+          
+          {status && (
+            <Dropdown menu={{ items: feedbackMenuItems }} trigger={['click']} placement="bottomRight">
+              <Tag style={{ cursor: 'pointer', background: 'rgba(255,255,255,0.1)', border: 'none' }}>
+                <EditOutlined style={{ marginRight: 4 }} />状态不对？
+              </Tag>
+            </Dropdown>
+          )}
+        </div>
 
         <div style={{ margin: '20px 0' }}>
           <Progress

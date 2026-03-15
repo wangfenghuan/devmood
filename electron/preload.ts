@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { CurrentStatus, StatusSnapshot, AppSettings } from './types'
+import { CurrentStatus, StatusSnapshot, AppSettings, DeveloperState } from './types'
 
 // 暴露给渲染进程的 API
 const electronAPI = {
@@ -73,6 +73,11 @@ const electronAPI = {
   // 获取权限状态
   getPermissionStatus: (): Promise<{ granted: boolean; platform: string }> => {
     return ipcRenderer.invoke('get-permission-status')
+  },
+
+  // 发送用户反馈校正状态
+  sendFeedback: (data: { state: DeveloperState, isAccurate: boolean }): Promise<{ success: boolean }> => {
+    return ipcRenderer.invoke('user-feedback', data)
   },
 
   // 监听状态更新

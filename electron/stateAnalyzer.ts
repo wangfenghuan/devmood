@@ -274,8 +274,8 @@ class StateAnalyzer {
       (avgBackspaceCount > 15) || // 频繁删除
       (avgCopyPasteCount > 8 && clickTrend > 0.2) || // 疯狂复制粘贴试错
       (avgClickFrequency > 40 && clickTrend > 0.3) ||
-      (activityVariance > 200 && avgTypingSpeed > baseline * 1.5) || // 瞎敲发泄
-      (typingRhythm < 0.2 && avgTypingSpeed > 50)
+      (activityVariance > 200 && avgTypingSpeed > baseline * 1.5 && avgBackspaceCount > 5) || // 瞎敲发泄，必须伴随频繁删除
+      (typingRhythm < 0.2 && avgTypingSpeed > 50 && avgBackspaceCount > 3)
     ) {
       return 'frustrated'
     }
@@ -532,6 +532,29 @@ class StateAnalyzer {
     if (changes.length === 0) return 0.5
     const avgChange = this.average(changes)
     return Math.max(0, 1 - avgChange)
+  }
+
+  // 接收用户手动反馈矫正状态，并喂给模型
+  correctStatePrediction(correctState: DeveloperState): void {
+    if (this.activityHistory.length === 0) return
+
+    // 拿到最近的一条活动数据
+    const latestData = this.activityHistory[this.activityHistory.length - 1]
+    
+    // 重新提取特征
+    const mlFeatures = this.mlAnalyzer.extractFeatures(latestData, this.activityHistory)
+    
+    // 强制作为正确样本喂给模型 (增加权重, 可以通过连续添加几次来模拟高权重)
+    this.mlAnalyzer.addSample(mlFeatures, correctState)
+    this.mlAnalyzer.addSample(mlFeatures, correctState)
+    this.mlAnalyzer.addSample(mlFeatures, correctState)
+    
+    console.log(`[StateAnalyzer] Received user feedback: Correct state is ${correctState}. Added to ML training set with high priority.`)
+    
+    // 强制把当前系统状态扭转为用户的反馈
+    this.currentState = correctState
+    this.pendingState = null
+    this.pendingStateCount = 0
   }
 
   // 重置工作计时

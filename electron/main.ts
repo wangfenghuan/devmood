@@ -509,8 +509,27 @@ ipcMain.handle('clear-history', async () => {
 })
 
 ipcMain.handle('user-feedback', async (_event, data: { statusId?: number, state: DeveloperState, isAccurate: boolean }) => {
-  // 这里暂时只打印日志，未来可以调用 stateAnalyzer.mlAnalyzer.addFeedback(data.state, data.isAccurate)
-  console.log(`[Feedback] User judged AI state prediction '${data.state}' as: ${data.isAccurate ? 'Accurate' : 'Inaccurate'}`)
+  console.log(`[Feedback] User manually corrected AI state prediction to: '${data.state}' (Accurate? ${data.isAccurate})`)
+  
+  if (stateAnalyzer && data.state) {
+    stateAnalyzer.correctStatePrediction(data.state)
+    
+    // 立即重新触发一次状态广播，让前端 UI 立即刷新为校正后的状态
+    if (mainWindow && !mainWindow.isDestroyed() && activityMonitor) {
+       // 通过随便塞个空数据或者是上次的数据触发一次 analyze (这里我们用 currentStatus 的数据结构)
+       const newData = currentStatus.stats
+       const newAnalysis = stateAnalyzer.analyze(newData)
+       currentStatus = {
+         state: newAnalysis.state,
+         score: newAnalysis.score,
+         lastUpdate: Date.now(),
+         stats: newData,
+         analysis: newAnalysis
+       }
+       mainWindow.webContents.send('status-update', currentStatus)
+    }
+  }
+  
   return { success: true }
 })
 
